@@ -1,0 +1,37 @@
+[project]
+name = "assistant"
+version = "0.1.0"
+description = "Voice desktop assistant with a Live2D avatar for niri + Noctalia"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "faster-whisper>=1.2.1",
+    "nvidia-cublas-cu12>=12.9",
+    "nvidia-cudnn-cu12>=9.10",
+    "kokoro-onnx>=0.6.1",
+    "onnxruntime>=1.31",
+    "pysilero-vad>=3.4",
+    "sounddevice>=0.5.6",
+    "numpy>=2.0",
+    "httpx>=0.28",
+    "dbus-fast>=5.2",
+    "ddgs>=9.16.0",
+    "trafilatura>=2.3.1",
+    "sherpa-onnx>=1.13.8",
+    "sherpa-onnx-core==1.13.8",
+    "sentencepiece>=0.2.2",
+]
+
+[project.optional-dependencies]
+piper = ["piper-tts>=1.8.0"]
+api = ["anthropic>=1.15.0"]
+
+[project.scripts]
+assistant = "assistant.cli:main"
+assistantd = "assistant.daemon:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["assistant"]

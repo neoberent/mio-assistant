@@ -1,0 +1,20 @@
+[Unit]
+Description=Desktop voice assistant daemon
+PartOf=graphical-session.target
+After=graphical-session.target pipewire.service wireplumber.service ollama.service
+Requisite=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/mio-assistant/bin/assistantd
+EnvironmentFile=-%h/.config/assistant/env
+Restart=on-failure
+RestartSec=3
+# keep it from ever hogging the desktop
+Nice=5
+CPUWeight=80
+MemoryHigh=4G
+MemoryMax=6G
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,0 +1,66 @@
+/* Catppuccin Mocha, Mio's pink + mauve */
+:root {
+  --base: #1e1e2e; --mantle: #181825; --surface0: #313244; --surface1: #45475a; --overlay: #6c7086;
+  --text: #cdd6f4; --subtext: #a6adc8; --pink: #f5c2e7; --mauve: #cba6f7; --green: #a6e3a1; --red: #f38ba8;
+  --radius: 14px;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; width: 340px; padding: 14px; background: var(--base); color: var(--text);
+  font: 13px/1.45 "Inter", "Noto Sans", system-ui, sans-serif;
+  background-image: radial-gradient(circle at 100% 0, rgba(245, 194, 231, .10), transparent 45%),
+                    radial-gradient(circle at 0 100%, rgba(203, 166, 247, .10), transparent 50%);
+}
+header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+header img { border-radius: 12px; box-shadow: 0 0 0 2px rgba(203, 166, 247, .35); }
+h1 { margin: 0; font-size: 18px; letter-spacing: .3px;
+     background: linear-gradient(90deg, var(--pink), var(--mauve)); -webkit-background-clip: text; color: transparent; }
+h2 { margin: 0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; color: var(--subtext); }
+.who { display: flex; flex-direction: column; gap: 2px; }
+.pill { align-self: flex-start; font-size: 11px; padding: 1px 8px; border-radius: 99px; background: var(--surface0);
+        color: var(--subtext); }
+.pill.ok { color: var(--base); background: var(--green); }
+.pill.bad { color: var(--base); background: var(--red); }
+.pill.busy { color: var(--base); background: var(--pink); }
+
+.card { background: rgba(49, 50, 68, .55); border: 1px solid rgba(203, 166, 247, .14); border-radius: var(--radius);
+        padding: 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
+.hint { font-size: 12px; color: var(--subtext); }
+.hint code { color: var(--pink); background: var(--mantle); padding: 1px 5px; border-radius: 6px; }
+
+button { font: inherit; cursor: pointer; border: 0; border-radius: 10px; padding: 9px 12px; color: var(--base);
+         transition: transform .08s ease, filter .15s ease; }
+button:hover { filter: brightness(1.08); }
+button:active { transform: scale(.98); }
+button:disabled { opacity: .45; cursor: default; }
+.primary { background: linear-gradient(90deg, var(--pink), var(--mauve)); font-weight: 600; }
+.secondary { background: var(--surface0); color: var(--text); border: 1px solid rgba(245, 194, 231, .25); }
+.link { background: none; color: var(--pink); padding: 0; font-size: 12px; }
+
+form { display: flex; gap: 6px; }
+input[type=text] { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--mantle);
+                   border: 1px solid var(--surface1); border-radius: 10px; padding: 8px 10px; outline: none; }
+input[type=text]:focus { border-color: var(--mauve); box-shadow: 0 0 0 3px rgba(203, 166, 247, .2); }
+form button { background: var(--mauve); padding: 0 12px; font-weight: 700; }
+.sent { margin: 0; font-size: 12px; color: var(--pink); }
+
+.toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.toggle input { display: none; }
+.toggle span { width: 34px; height: 20px; border-radius: 99px; background: var(--surface1); position: relative;
+               transition: background .2s; flex: none; }
+.toggle span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%;
+                      background: var(--text); transition: left .2s, background .2s; }
+.toggle input:checked + span { background: linear-gradient(90deg, var(--pink), var(--mauve)); }
+.toggle input:checked + span::after { left: 17px; background: var(--base); }
+
+.row { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 4px 2px 8px; border-radius: 99px;
+        background: var(--mantle); border: 1px solid var(--surface1); color: var(--subtext); }
+.chip button { background: none; color: var(--overlay); padding: 0 4px; font-size: 13px; line-height: 1; }
+.chip button:hover { color: var(--red); }
+
+ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 150px; overflow: auto; }
+li { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+li time { color: var(--overlay); flex: none; }
+.muted { color: var(--overlay); }

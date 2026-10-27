@@ -1,0 +1,5 @@
+#!/bin/sh
+# Avatar overlay: system Python + GTK4 + gtk4-layer-shell (must be preloaded before libwayland).
+ROOT="$(dirname "$(dirname "$(readlink -f "$0")")")"
+export LD_PRELOAD="/usr/lib/libgtk4-layer-shell.so${LD_PRELOAD:+:$LD_PRELOAD}"
+exec python3 "$ROOT/avatar/avatar.py" "$@"

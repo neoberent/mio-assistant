@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Mio",
+  "version": "1.2.0",
+  "description": "Lets Mio, your desktop assistant, read pages and control tabs and videos by voice. Talks only to Mio on this PC.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAiaL3IP8tu/ObIbO+sK3CxisdD4dRpCPDX7y/olnjpaU2DkmH7eL0M1z+l8laJI2pS3sH0on1UrV/2HEk9t9EVNUhBLjF9RdDf3iI6RlfdMjnWVkj1GRQkG1trVn2VvrFctGK6xsT/wwW/PdKj4hsBrUNWA+NXFGtLKHvGzPIQkZyDI1zHU7E2KCCjduB0UA3hJRAG5MOdQOjCbQHEGk0YFd0bHJq8GHhBOTS0xMUZ+3igwsp0Qhvf/N2mjVWkwwsD4udY7RMgP7NZqS9HokLUSo4UCfKz8x70jT7SMEDKVf7cN/IUJKJjixDgPdtzKX7veCn44mqnCdadKJbMuaCxwIDAQAB",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Mio",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "nativeMessaging",
+    "tabs",
+    "scripting",
+    "history",
+    "sessions",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "minimum_chrome_version": "116"
+}

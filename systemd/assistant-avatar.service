@@ -1,0 +1,17 @@
+[Unit]
+Description=Desktop assistant Live2D avatar overlay
+PartOf=graphical-session.target
+After=graphical-session.target
+Requisite=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/mio-assistant/bin/assistant-avatar
+Restart=on-failure
+RestartSec=3
+Nice=5
+MemoryHigh=1G
+MemoryMax=1500M
+
+[Install]
+WantedBy=graphical-session.target

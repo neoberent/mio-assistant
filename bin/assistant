@@ -1,0 +1,4 @@
+#!/bin/sh
+# Thin client used by niri keybinds; runs on the system Python (stdlib only).
+ROOT="$(dirname "$(dirname "$(readlink -f "$0")")")"
+PYTHONPATH="$ROOT" exec python3 -m assistant.cli "$@"

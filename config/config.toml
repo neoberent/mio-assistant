@@ -1,0 +1,179 @@
+# Assistant configuration. Copied to ~/.config/assistant/config.toml on install.
+# Restart after edits:  systemctl --user restart assistantd
+
+[persona]
+name = "Mio"
+# Kept short on purpose: this text is sent with every Claude request.
+style = "You are Mio, a cheerful, warm anime girl living on the user's desktop. Speak casually and briefly (1-3 sentences, spoken aloud, no markdown, no emoji)."
+
+[stt]
+model = "large-v3-turbo"      # tiny.en | base.en | small.en | distil-large-v3 | large-v3-turbo
+device = "cuda"               # cuda | cpu
+compute_type = "int8_float16" # cpu: int8
+language = "en"
+vad_threshold = 0.5
+end_silence_ms = 800          # stop recording after this much silence
+no_speech_timeout_s = 5       # give up if nothing is said
+max_record_s = 20
+
+[tts]
+engine = "kokoro"             # kokoro | piper
+kokoro_voice = "af_heart"     # af_heart, af_bella, af_nicole, af_sky, jf_alpha (ja) ...
+kokoro_speed = 1.05
+piper_voice = "en_US-amy-medium"
+volume = 1.0
+
+[brain]
+# Order: fast-path regex (no LLM) -> local Ollama -> Claude (only when needed)
+local_enabled = true
+ollama_url = "http://127.0.0.1:11434"
+ollama_model = "qwen3.5:9b"
+ollama_keep_alive = "5m"      # unload from VRAM after idle
+vision_model = "qwen3.5:9b"  # her own eyes for see_screen: qwen3.5 sees itself (no extra VRAM); a separate one
+                              # like "qwen3-vl:4b-instruct" loads only while looking (never in games)
+embed_model = "all-minilm"    # tiny CPU embedding model for learned requests (ollama pull all-minilm)
+local_thinking = "auto"       # auto = think before acting (not for small talk) + a deeper retry before Claude | always | never
+ask_before_claude = true      # when both local tries fail: research a question herself, else ask you what you meant; Claude only after that
+claude_backend = "cli"        # cli = `claude -p` with your Claude login | api = ANTHROPIC_API_KEY | off
+claude_model = "haiku"        # haiku | sonnet | opus (cli aliases) or a full id for the api backend
+claude_max_turns = 4          # max tool round-trips per request
+claude_daily_limit = 60       # hard cap on Claude requests per day
+claude_timeout_s = 90
+history_turns = 6             # max turns remembered while she is on screen (forgotten when she hides)
+session_timeout_s = 600       # also forget after 10 min without talking (e.g. when pinned)
+
+[learning]
+# Mio learns from use (assistant/learning.py): names she hears, and requests that worked (local or Claude) with
+# the tools that did them. Similar requests reuse what worked; "no, that's wrong" makes her forget it.
+# Stored in ~/.local/state/assistant/{skills,lexicon}.json. CPU only. `assistant learned` shows it.
+enabled = true
+# Dreaming: while you're away (no input for train_idle_min, needs `swayidle`; else Mio unused + GPU quiet +
+# nothing playing) and never during games, she fine-tunes her model on her wins (LoRA, ~30-40 min on the GPU).
+# Stops the moment you talk to her, come back or start a game. Install: scripts/install_dream.sh (~25 GB for qwen3.5).
+train = true
+train_min_total = 80          # wins needed before the first dream
+train_min_new = 40            # new wins needed for another one
+train_every_days = 3
+train_idle_min = 30
+use_trained = true            # false = back to the plain model
+
+[avatar]
+model = "Hiyori/Hiyori.model3.json"        # relative to avatar/web/models/
+output = "DP-1"               # monitor to show on
+width = 360
+height = 560
+margin_right = 40
+margin_bottom = 0
+scale = 1.0
+hide_after_s = 15             # hide this long after she finishes speaking
+show_while_listening = true
+# zoom = 1.0                  # >1 crops in on models with wide props; focus = height that stays put (0 top, 1 feet)
+# focus = 1.0
+# Per-model faces: [avatar.emotions.<name>] tables replace the presets in avatar/web/app.js
+# (neutral happy sad worried surprised shy curious thinking attentive), e.g.
+#   [avatar.emotions.shy]
+#   ParamCheek = 1
+#   ParamAngleX = -14
+# List a model's parameters: AVATAR_DEBUG=1 bin/assistant-avatar --show --dump params
+
+# Recolor parts of the model to match the desktop (Catppuccin Mocha). Rules apply in order.
+# parts = regex on part ids (PartHairFront…) or drawable ids (ArtMesh99…); list them with
+#   AVATAR_DEBUG=1 bin/assistant-avatar --show --dump 'PartBody'
+# hue_min/hue_max/sat_min/sat_max only touch pixels in that colour range. Delete these blocks for the original look.
+[[avatar.recolor]]            # hair: brown -> pink
+parts = "Hair"
+color = "#f5c2e7"
+hue_min = 12
+hue_max = 60
+sat_max = 0.6
+
+[[avatar.recolor]]            # hair ribbons: red -> mauve
+parts = "Hair"
+color = "#cba6f7"
+hue_min = 330
+hue_max = 12
+sat_min = 0.35
+
+[[avatar.recolor]]            # cardigan + sleeves: beige -> mauve ("#b4befe" lavender, "#313244" dark)
+parts = "^ArtMesh(99|71|72|75|77|85|86|91|92|68|69|80|81|83|88)$"
+color = "#cba6f7"
+hue_min = 15
+hue_max = 60
+sat_min = 0.15
+
+[lookup]
+# City for weather ("Berlin", "Hamburg"). Empty = guessed from your IP by wttr.in.
+weather_location = ""
+
+[knowledge]
+# Files Mio can search for "my shortcut / my config / how do I change your voice" (lines with secrets are skipped).
+paths = ["~/.config/niri/*.kdl", "~/.config/kitty/kitty.conf", "~/.config/fish/config.fish",
+         "~/.config/fish/functions/*.fish", "~/.config/assistant/config.toml",
+         "~/mio-assistant/docs/README.md", "~/Documents/Notes/**/*.md", "~/Documents/Notes/**/*.txt"]
+
+[wakeword]
+enabled = true
+# "whisper": the speech detector finds short utterances and Whisper checks them for "hey/hi/okay Mio".
+# Tested on your voice + mic: 19/20 caught; 0 false wakes in 60 s of YouTube and 40 tricky sentences. Uses the
+# GPU for ~0.1 s per short utterance, nothing while it's quiet. "kws": tiny keyword model (caught ~40%).
+detector = "whisper"
+vad_threshold = 0.15          # speech detector sensitivity; your mic is quiet, Whisper filters the rest
+bare_name = false             # true = a lone "Mio!" also wakes her (but videos trigger that)
+verify = true                 # Whisper must hear her name (always on for "whisper")
+# confirm_regex = '^(hey|hi|okay) (mio|miu)\b'   # override the accepted greeting + name spellings
+# kws detector only: sound-alike spellings for the small spotting model (it doesn't know "Mio")
+phrases = ["HEY MEO", "HEY MIA", "HEY ME OH", "HEY MEOW", "HEY MAYO", "HEY MIO", "HI MEO", "HI MIA",
+           "OKAY MEO", "OKAY MIA", "HEY MILO", "HEY ME"]
+threshold = 0.05              # lower = catches more (Whisper filters the rest)
+boost = 2.5
+
+[briefing]
+auto = true                   # once a day, the first time the PC is up in the morning
+from_hour = 5
+until_hour = 12
+delay_s = 25                  # wait after login before speaking
+
+[games]
+# name = command. Steam games are found automatically ("start <game name>").
+launchers = { roblox = ["froststrap", "-player"], sober = ["froststrap", "-player"], froststrap = ["froststrap", "-player"] }
+
+[gamemode]
+enabled = true                # free Mio's GPU memory while a game window is open
+show_avatar = true            # she pops up on top of the game when you talk to her (false = voice only)
+wake_word = true              # "Hey Mio" works mid-game; keeps Whisper loaded (~1.3 GB VRAM)
+unload_after_s = 60           # after talking to her mid-game, free the GPU again after this
+# game_app_ids = '^(steam_app_\d+|org\.vinegarhq\.Sober|gamescope|.*\.exe)$'   # override detection
+
+[clips]
+# "Clip that" / Alt+F10: instant replay with gpu-screen-recorder (NVENC, keeps the last minutes in RAM)
+enabled = true
+always = false                # true = keep the replay running outside games too
+folder = "~/Videos/Clips"
+buffer_s = 180                # how far back you can clip ("clip the last 2 minutes"); ~1.2 GB RAM at 50 Mbps
+default_s = 30                # "clip that"
+fps = 60
+codec = "h264"                # h264 plays everywhere (Discord, phones); hevc/av1 = smaller files
+bitrate_kbps = 50000          # 50 Mbps: near-lossless at 1080p60
+mic = false                   # also record your microphone
+
+[ptt]
+chime = true
+
+[security]
+# Shell commands whose first word is here run without asking.
+shell_allow = ["ls", "cat", "echo", "date", "uptime", "df", "du", "free", "whoami", "uname",
+               "pwd", "wc", "head", "tail", "grep", "find", "which", "ps", "pgrep", "nvidia-smi",
+               "sensors", "playerctl", "wpctl", "niri", "noctalia", "notify-send", "xdg-open", "git",
+               "ip", "ss", "lsblk", "lsusb", "lspci", "lscpu", "nproc", "hostname", "id", "journalctl", "pacman",
+               "paru", "yay", "flatpak", "sort", "uniq", "cut", "tr", "stat", "file", "realpath", "readlink",
+               "systemctl", "pactl", "wl-paste", "fc-list", "locale", "timedatectl", "hostnamectl", "printf", "bluetoothctl"]
+# Anything matching these regexes always needs a confirmation, even if allow-listed.
+shell_confirm_patterns = ['\brm\b', '\bsudo\b', '\bdd\b', '\bmkfs', '\bchmod\b', '\bchown\b', '\bkill', '\bshutdown\b',
+                          '\breboot\b', '\bsystemctl\b(?!.*\b(status|is-active|is-enabled|is-failed|list-units|list-timers|--failed|show|cat)\b)',
+                          '\b(pacman|paru|yay)\b(?!.*\s-S[sigl]\b).*\s-[SRUD]', '^\s*(paru|yay)\s*$', '\bflatpak\s+(install|uninstall|update|remove|repair)',
+                          '--vacuum', '\bbluetoothctl\s+(power|connect|disconnect|pair|remove|trust|block|scan|agent|discoverable)', '-delete\b', '-exec', '\bset-(sink|source)', '>', '\bmv\b', 'git\s+(push|reset|clean|checkout|restore)']
+# Shell commands that are refused outright.
+shell_deny_patterns = ['rm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+(/|~)\s*$', ':\(\)\s*\{', 'mkfs', '\bdd\b.*of=/dev/']
+# File tools may only touch these trees.
+file_roots = ["~/Documents", "~/Downloads", "~/Desktop", "~/Pictures", "~/Music", "~/Videos"]
+confirm_timeout_s = 20

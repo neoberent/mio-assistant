@@ -1,0 +1,18 @@
+// Desktop assistant (included from config.kdl). Remove the include line to disable.
+binds {
+    // Push-to-talk: press, speak, she stops listening when you pause (press again to stop early / interrupt)
+    Mod+A repeat=false hotkey-overlay-title="Assistant: talk" { spawn "~/.local/bin/assistant" "ptt"; }
+    // Keep the character on screen / let it auto-hide
+    Mod+Shift+A repeat=false hotkey-overlay-title="Assistant: show/hide character" { spawn "~/.local/bin/assistant" "toggle"; }
+    // Shut up immediately
+    Mod+Ctrl+A repeat=false hotkey-overlay-title="Assistant: stop" { spawn "~/.local/bin/assistant" "stop"; }
+    // Instant replay: save the last 30 s of gameplay to ~/Videos/Clips (like ShadowPlay)
+    Alt+F10 repeat=false hotkey-overlay-title="Assistant: clip that" { spawn "~/.local/bin/assistant" "clip"; }
+}
+
+// The avatar is a layer-shell surface; keep it out of screenshots/screencasts if you like:
+layer-rule {
+    match namespace="^assistant-avatar$"
+    // block-out-from "screencast"
+    shadow { off; }
+}

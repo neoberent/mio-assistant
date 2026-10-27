@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>avatar</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; user-select: none; }
+  canvas { display: block; }
+  #bubble {
+    position: absolute; left: 12px; right: 12px; top: 10px; padding: 8px 12px; border-radius: 14px;
+    background: rgba(30, 30, 46, .82); color: #f5e0dc; font: 14px/1.35 "Inter", "Noto Sans", sans-serif;
+    box-shadow: 0 4px 18px rgba(0,0,0,.35); opacity: 0; transform: translateY(-6px);
+    transition: opacity .25s, transform .25s; pointer-events: none;
+  }
+  #bubble.on { opacity: 1; transform: none; }
+  #state {
+    position: absolute; right: 16px; bottom: 16px; width: 14px; height: 14px; border-radius: 50%;
+    background: transparent; transition: background .2s, box-shadow .2s; pointer-events: none;
+  }
+  #state.listening { background: #f38ba8; box-shadow: 0 0 0 0 rgba(243,139,168,.7); animation: pulse 1.2s infinite; }
+  #state.thinking, #state.thinking_hard { background: #89b4fa; animation: blink 1s infinite; }
+  #state.thinking_hard { background: #cba6f7; }
+  #state.confirming { background: #f9e2af; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 10px rgba(243,139,168,0); } 100% { box-shadow: 0 0 0 0 rgba(243,139,168,0); } }
+  @keyframes blink { 50% { opacity: .35; } }
+</style>
+</head>
+<body>
+<div id="bubble"></div>
+<div id="state"></div>
+<script src="vendor/live2dcubismcore.min.js"></script>
+<script src="vendor/pixi.min.js"></script>
+<script src="vendor/cubism4.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

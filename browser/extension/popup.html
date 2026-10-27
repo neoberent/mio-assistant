@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Mio</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/icon-48.png" alt="" width="40" height="40">
+    <div class="who">
+      <h1>Mio</h1>
+      <span id="status" class="pill">checking…</span>
+    </div>
+  </header>
+
+  <section id="help" class="card hint" hidden></section>
+
+  <section class="card actions">
+    <button id="summarize" class="primary">✨ Summarize this page</button>
+    <button id="video" class="secondary" hidden>▶ What's this video about?</button>
+    <form id="ask">
+      <input id="question" type="text" placeholder="Ask Mio about this page…" autocomplete="off">
+      <button type="submit" aria-label="Ask">➜</button>
+    </form>
+    <p id="sent" class="sent" hidden>Mio is answering out loud 💬</p>
+  </section>
+
+  <section class="card">
+    <label class="toggle"><input id="readPages" type="checkbox"><span></span>Let Mio read pages</label>
+    <label class="toggle"><input id="allowActions" type="checkbox"><span></span>Let Mio click, type &amp; scroll</label>
+    <div class="row">
+      <h2>Off-limits sites</h2>
+      <button id="blockHere" class="link">+ this site</button>
+    </div>
+    <div id="blocked" class="chips"></div>
+  </section>
+
+  <section class="card">
+    <h2>Recently</h2>
+    <ul id="log"><li class="muted">Nothing yet — say “Hey Mio, skip the ad”.</li></ul>
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>

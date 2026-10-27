@@ -1,0 +1,4 @@
+#!/bin/sh
+# Native messaging host for Mio's browser extension (Brave starts it). Stdlib only, system Python.
+ROOT="$(dirname "$(dirname "$(readlink -f "$0")")")"
+PYTHONPATH="$ROOT" exec python3 -m assistant.browser_host "$@"

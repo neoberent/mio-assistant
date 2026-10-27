@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Downloaded by scripts/fetch_assets.sh (third-party licenses: Live2D Cubism Core, sample models)
+avatar/web/vendor/
+avatar/web/models/
+
+# Never commit secrets
+config/env
+*.env
+unsloth_compiled_cache/
+
+# Personal files that never belong in the public repo
+claude-memory/
+personal/
+.env
