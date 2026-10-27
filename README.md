@@ -9,6 +9,25 @@ I wanted something that felt like part of the desktop instead of a chat window, 
 through API credits every time I asked for the volume to go down. So most of it runs locally, and the
 cloud model only gets the requests the local stack really can't handle.
 
+<table>
+  <tr>
+    <td><img src="docs/images/cachyos-news.png" alt="Mio reading out the latest CachyOS news in a speech bubble" width="100%"></td>
+    <td><img src="docs/images/weather.png" alt="Mio saying it's cloudy and 9°C" width="100%"></td>
+    <td><img src="docs/images/updates.png" alt="Mio saying there's one pending update in the official repositories" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>"What's new in CachyOS?"</sub></td>
+    <td align="center"><sub>"How's the weather?"</sub></td>
+    <td align="center"><sub>"Do I have updates?"</sub></td>
+  </tr>
+</table>
+
+She sits on top of everything in the corner of the screen, her face changes with what she says, her
+mouth moves with her voice, and whatever she answers also shows up in a bubble. Requests like these are handled by local tools and the local
+model, so they cost nothing. The model she's wearing is
+[yuri by creape](https://booth.pm/ja/items/4798949), a free Live2D model. It isn't included in this repo,
+but any Cubism 3/4/5 model works.
+
 > Built for my setup: CachyOS (Arch), the niri Wayland compositor, the Noctalia shell, and an NVIDIA GPU.
 > It'll take some adapting to run anywhere else, but the architecture should still be interesting to read.
 
