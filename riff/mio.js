@@ -1,6 +1,6 @@
 /**
  * @name Mio
- * @author weev
+ * @author Neo Berent
  * @version 1.0.0
  * @description Lets Mio, your desktop assistant, play songs, playlists and your liked songs by voice.
  */

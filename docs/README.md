@@ -452,7 +452,7 @@ and turns it on; backs up `plugins.json`), then restart Riff. Run it again after
 - **Songs**: "play blinding lights by the weeknd", "put on some jazz", "listen to tame impala" — searches Riff
   and plays the best match. Music goes to Riff; YouTube only when you say YouTube or video. Riff is started
   if it isn't open.
-- **Playlists**: "play my Alex g playlist", "shuffle my lucio playlist", "open my French playlist" (shows it
+- **Playlists**: "play my chill playlist", "shuffle my gym playlist", "open my study playlist" (shows it
   without playing), "what playlists do I have?" — names are matched loosely, so misheard names still work.
 - **More**: "play my liked songs (on shuffle)", "play my wave" / "play some music", "what song is this?",
   "like this song" / "unlike this song", "turn shuffle on/off".
