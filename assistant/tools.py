@@ -463,9 +463,106 @@ class ToolBox:
                    {"action": {"type": "string", "enum": ["play-pause", "next", "previous", "stop", "status"]}},
                    ["action"])
         async def media(action: str) -> str:
+            from . import riff
+
+            # Riff is the music player: while it plays, "pause"/"next" mean Riff, not some paused video
+            if riff.connected() and action != "stop" and (await riff.call("status")).get("result", {}).get("playing"):
+                return await self.tools["riff"].fn(action={"play-pause": "pause", "previous": "previous"}.get(action, action))
             if action == "status":
                 return (await sh("playerctl", "metadata", "--format", "{{status}}: {{artist}} - {{title}}"))[1]
             return (await sh("playerctl", action))[1] or "ok"
+
+        riff_ops = ["play", "playlist", "open_playlist", "playlists", "liked", "wave", "search", "pause", "resume",
+                    "next", "previous", "like", "unlike", "shuffle_on", "shuffle_off", "status"]
+
+        @self._add("riff", "Riff, the user's music player app (use it for songs and music, YouTube only when they "
+                   "say YouTube/video). action: play (query = song/artist words; searches and plays the best "
+                   "match), playlist (query = playlist name, shuffle=true to shuffle it), open_playlist (show it "
+                   "without playing), playlists (list them), liked (their liked songs), wave (My Wave radio), "
+                   "search (show results only), pause, resume, next, previous, like/unlike (the current song), "
+                   "shuffle_on, shuffle_off, status (what's playing).",
+                   {"action": {"type": "string", "enum": riff_ops}, "query": S, "shuffle": {"type": "boolean"}},
+                   ["action"])
+        async def riff_(action: str, query: str = "", shuffle: bool = False) -> str:
+            import difflib
+
+            from . import riff
+
+            if not riff.connected():
+                if action not in ("play", "playlist", "open_playlist", "playlists", "liked", "wave", "search"):
+                    return "Riff isn't open"
+                if not find_app("riff"):
+                    return "Riff isn't installed"
+                await self.tools["launch_app"].fn(name="riff")
+                for _ in range(60):  # it takes a few seconds until the plugin is up
+                    await asyncio.sleep(0.5)
+                    if riff.connected():
+                        break
+                else:
+                    return riff.NOT_CONNECTED
+                await asyncio.sleep(1)  # let riff finish building its views
+
+            async def rcall(name: str, **args) -> dict:
+                r = await riff.call(name, **args)
+                if "error" in r:
+                    raise RuntimeError(r["error"])
+                return r.get("result") or {}
+
+            def song(t: dict | None) -> str:
+                return f"“{t['title']}” by {t['artist']}" if t and t.get("artist") else f"“{(t or {}).get('title', '?')}”"
+
+            try:
+                if action in ("play", "search"):
+                    if not query.strip():
+                        if action == "play":
+                            return await riff_("resume")
+                        return "what should I search for?"
+                    r = await rcall(action, query=query)
+                    if action == "search":
+                        return "showing Riff results: " + "; ".join(r.get("results", []))
+                    others = "; ".join(r.get("others", []))
+                    return f"playing {song(r)} in Riff" + (f". Other results: {others}" if others else "")
+                if action in ("playlist", "open_playlist", "playlists"):
+                    lists = (await rcall("playlists")).get("playlists", [])
+                    names = ", ".join(f"{p['name']} ({p['count']} songs)" for p in lists) or "none"
+                    if action == "playlists":
+                        return f"Riff playlists: {names}"
+                    want = re.sub(r"\b(my|the|playlists?|in riff|on riff)\b", " ", query.lower()).strip()
+                    key = lambda s: re.sub(r"\W+", "", s.lower())
+                    scored = [(1.0 if key(want) and key(want) == key(p["name"]) else
+                               0.9 if key(want) and (key(want) in key(p["name"]) or key(p["name"]) in key(want)) else
+                               difflib.SequenceMatcher(None, key(want), key(p["name"])).ratio(), p) for p in lists]
+                    score, hit = max(scored, key=lambda x: x[0], default=(0, None))
+                    if not hit or score < 0.6:
+                        return f"no Riff playlist called '{query}'. Playlists: {names}"
+                    r = await rcall("playlist", id=hit["id"], play=action == "playlist", shuffle=shuffle)
+                    if action == "open_playlist":
+                        await self.tools["focus_window"].fn(query="riff")
+                        return f"opened the playlist {r['name']} ({r['count']} songs) in Riff"
+                    return (f"playing the playlist {r['name']}{' on shuffle' if shuffle else ''}, "
+                            f"starting with {song(r.get('track'))}")
+                if action == "liked":
+                    r = await rcall("liked", shuffle=shuffle)
+                    return f"playing your {r['count']} liked songs{' on shuffle' if shuffle else ''}, starting with {song(r.get('track'))}"
+                if action == "wave":
+                    return f"playing My Wave, starting with {song(await rcall('wave'))}"
+                if action == "status":
+                    s = await rcall("status")
+                    if not s.get("track"):
+                        return "Riff is open but nothing is playing"
+                    return (f"Riff is {'playing' if s['playing'] else 'paused on'} {song(s['track'])}, "
+                            f"{s['time'] // 60}:{s['time'] % 60:02d} of {s['duration'] // 60}:{s['duration'] % 60:02d}"
+                            f"{', liked' if s.get('liked') else ''}{', shuffle on' if s.get('shuffle') else ''}")
+                s = await rcall("control", op=action)
+                if action in ("like", "unlike"):
+                    return f"{'liked' if action == 'like' else 'unliked'} {song(s.get('track'))}"
+                if action in ("shuffle_on", "shuffle_off"):
+                    return f"shuffle {'on' if s.get('shuffle') else 'off'}"
+                if action in ("next", "previous"):
+                    return f"now playing {song(s.get('track'))}"
+                return f"{'playing' if s.get('playing') else 'paused'} {song(s.get('track'))}"
+            except RuntimeError as e:
+                return f"Riff: {e}"
 
         @self._add("shell_panel", "Control the Noctalia desktop shell: open a panel, toggle night light, do-not-disturb, "
                    "wifi, bluetooth, change wallpaper, or theme. command is a `noctalia msg` subcommand like "

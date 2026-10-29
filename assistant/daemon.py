@@ -880,6 +880,10 @@ class Assistant:
         if self.dreamer:
             asyncio.create_task(self.dreamer.run())
         asyncio.create_task(self.timers.run())
+        from . import riff
+
+        riff.bridge = riff.Bridge()
+        asyncio.create_task(riff.bridge.serve())
         if self.cfg.gamemode.get("enabled", True):
             from .gamemode import GameMode
 

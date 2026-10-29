@@ -26,7 +26,9 @@ ESCALATE = "ask_claude"
 CATEGORIES: dict[str, tuple[str, list[str]]] = {
     # first: its words are specific, and topics after them ("…that i like lofi music") would fill MAX_TOOLS
     "memory": (r"\b(remember|note|don'?t forget|keep in mind)\b", ["remember", "notify"]),
-    "youtube": (r"\b(youtube|yt|video|channel|youtuber|stream|music|song|lofi|playlist|put on|listen to)\b",
+    "music": (r"\b(music|songs?|tracks?|lofi|playlists?|riff|album|artist|singer|band|listen(ing)? to|put on|"
+              r"liked songs|my wave|shuffle|hear|in the mood for)\b", ["riff", "media", "volume"]),
+    "youtube": (r"\b(youtube|yt|video|channel|youtuber|stream)\b",
                 ["youtube_play", "browser_video", "search_site"]),
     "browser": (r"\b(page|article|site|website|tab|browser|brave|video|click|scroll|history|visited|"
                 r"looked at|summari[sz]e|reading|watching|first (result|link|one)|this (page|video|article|post))\b",
@@ -40,7 +42,7 @@ CATEGORIES: dict[str, tuple[str, list[str]]] = {
               ["launch_game", "steam_library", "game_news", "game_price", "clip"]),
     "phone": (r"\b(phone|iphone|mobile|handy)\b", ["phone", "clipboard"]),
     "media": (r"\b(volume|louder|quieter|mute|music|song|track|play|pause|skip|spotify|playing)\b",
-              ["volume", "media"]),
+              ["volume", "media", "riff"]),
     "desktop": (r"\b(night ?light|do not disturb|dnd|wallpaper|theme|dark mode|light mode|bluetooth|wi-?fi|"
                 r"caffeine|control cent(er|re)|panel|launcher|noctalia|bar|dock|notification)\b",
                 ["shell_panel", "notify"]),
@@ -127,7 +129,9 @@ EXAMPLES = """Examples of good tool use:
 - "what's my IP?" → run_shell(command="ip -brief addr")
 - "kill discord" → run_shell(command="pkill -i discord")
 - "what's using the most memory?" → run_shell(command="ps -eo comm,%mem --sort=-%mem | head -5")
-- "put on some piano music" / "play me some jazz" → youtube_play(query="relaxing piano music") — "play <something>" always searches it, even while music is playing; media(action="play-pause") is only for "pause", "resume" or a bare "play"
+- "put on some piano music" / "play me some jazz" / "play blinding lights by the weeknd" → riff(action="play", query="piano music") — songs and music go to Riff (YouTube only when they say YouTube or video); "play <something>" always searches it, even while music is playing; media(action="play-pause") is only for "pause", "resume" or a bare "play"
+- "shuffle my gym playlist" → riff(action="playlist", query="gym", shuffle=true); "open my chill playlist" → riff(action="open_playlist", query="chill"); "play my liked songs" → riff(action="liked")
+- "what song is this?" → riff(action="status"); "skip this song" → riff(action="next"); "like this song" → riff(action="like")
 - "open the github page of niri" → open_best_match(query="niri github")
 - "how much RAM is brave using?" → system_info, then read the 'RAM by app' line
 - "how hot is my gpu?" / "cpu temperature?" → system_health, then give the temperature

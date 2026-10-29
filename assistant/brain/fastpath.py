@@ -217,6 +217,78 @@ do does i have has new pending available waiting the to be updated see look sear
 got on upgrades upgrade what which how many arch cachyos linux it outdated up date please tell whats there's""".split())
 
 
+async def _music(t: str, tools: ToolBox) -> Result | None:
+    """Songs, playlists, liked songs and My Wave in Riff, the music player. YouTube/video requests never get here."""
+    from .. import riff
+    from ..games import find_game
+
+    if not find_app("riff") or re.search(r"\b(youtube|yt|videos?|spotify)\b", t):
+        return None
+    on = riff.connected()
+    t = re.sub(r" (?:on|in|with|using) riff$", "", t)
+
+    async def go(action: str, query: str = "", shuffle: bool = False) -> Result:
+        r = await tools.call("riff", {"action": action, **({"query": query} if query else {}),
+                                      **({"shuffle": True} if shuffle else {})})
+        if hit := re.match(r"(?:playing|now playing) “(.+?)”(?: by (.+?))?(?: in Riff|\.|$)", r):
+            return Result(f"Playing {hit[1]}" + (f" by {hit[2]}!" if hit[2] else "!"))
+        if hit := re.match(r"playing the playlist (.+?)(?: on shuffle)?, starting", r):
+            return Result(f"Playing your {hit[1]} playlist{' on shuffle' if shuffle else ''}!")
+        if r.startswith("playing your"):
+            return Result(f"Playing your liked songs{' on shuffle' if shuffle else ''}!")
+        if r.startswith("playing My Wave"):
+            return Result("Starting My Wave!")
+        if r.startswith("opened the playlist"):
+            return Result(f"Here's your {r.split('playlist ', 1)[1].split(' (')[0]} playlist!")
+        if m := re.match(r"no Riff playlist called '(.+?)'\. Playlists: (.+)", r):
+            return Result(f"I couldn't find a playlist called {m[1]}. You have {re.sub(r' \(\d+ songs\)', '', m[2])}.")
+        if r.startswith("Riff playlists: "):
+            names = re.sub(r" \((\d+) songs\)", r" with \1 songs", r[16:])
+            return Result("You don't have any playlists yet." if names == "none" else f"Your playlists: {names}.")
+        if r.startswith(("liked ", "unliked ")):
+            return Result("Liked it!" if r.startswith("liked") else "Okay, removed it from your liked songs.")
+        if r.startswith("Riff is "):
+            return Result(r[0].upper() + r[1:] + ".")
+        r = r.removeprefix("Riff: ")
+        return Result(r[0].upper() + r[1:] + ("" if r.endswith(".") else "."))
+
+    shuffled = r"(?: (?:on shuffle|shuffled|in random order|randomly))?"
+    if m := re.fullmatch(r"(play|shuffle|put on|start|listen to|open|show me|pull up|go to)(?: me)? (?:my |the )?"
+                         r"(?:playlist (?:called |named )?(.+?)|(.+?) playlist)" + shuffled, t):
+        name = m[2] or m[3]
+        if m[1] in ("open", "show me", "pull up", "go to"):
+            return await go("open_playlist", name)
+        return await go("playlist", name, shuffle=m[1] == "shuffle" or "shuffle" in t or "random" in t)
+    if re.fullmatch(r"(?:play|shuffle|put on|listen to|start)(?: me)? (?:my |the )?(?:liked|favou?rite|saved) "
+                    r"(?:songs|tracks|music)" + shuffled, t):
+        return await go("liked", shuffle=t.startswith("shuffle") or "shuffle" in t or "random" in t)
+    if re.fullmatch(r"(?:play|start|put on|turn on)(?: me)? (?:my wave|the radio|riff radio)|play some music|"
+                    r"put on some music|play something(?: good| for me| i like)?", t):
+        return await go("wave")
+    if re.fullmatch(r"(?:what|which) playlists do i have|(?:list|show me|tell me) my playlists|"
+                    r"what are my playlists", t):
+        return await go("playlists")
+    if re.fullmatch(r"(?:like|heart|favou?rite) (?:this|the|that) (?:song|track)|i like this song|add (?:this|that) "
+                    r"(?:song |track )?to (?:my )?(?:liked songs|likes|favou?rites)", t):
+        return await go("like") if on else None
+    if re.fullmatch(r"unlike (?:this|the|that) (?:song|track)|remove (?:this|that) (?:song |track )?from (?:my )?"
+                    r"(?:liked songs|likes|favou?rites)", t):
+        return await go("unlike") if on else None
+    if m := re.fullmatch(r"(?:turn )?shuffle (on|off)|turn (on|off) (?:the )?shuffle", t):
+        return await go(f"shuffle_{m[1] or m[2]}") if on else None
+    if re.fullmatch(r"what(?:'s| is) (?:this|the|that) song(?: called)?|what song is (?:this|that|playing)|"
+                    r"what(?:'s| is) playing(?: right now)?|who sings this(?: song)?|what am i listening to", t):
+        return await go("status") if on else None
+    if m := re.fullmatch(r"(?:play|put on|listen to|i want to (?:hear|listen to)|start playing|let me hear)(?: me)? "
+                         r"(?:the song |the track |a song |some songs? |songs )?(?:(?:called|named|by) )?(.+)", t):
+        query = re.sub(r"^(?:some|the|a) ", "", m[1])
+        if re.fullmatch(r"(?:the )?(?:music|song|track|it|this|that|again|next|previous|something)", query) \
+                or find_game(query, tools.launchers):
+            return None
+        return await go("play", query)
+    return None
+
+
 def _is_update_check(t: str) -> bool:
     """'can you check if my pc needs any updates', 'do I have updates', 'how many updates are there'."""
     words = re.findall(r"[a-z']+", t.replace("'s", ""))
@@ -308,6 +380,8 @@ async def handle(text: str, tools: ToolBox, usage=None, last_reply: str = "") ->
         return Result(r[0].upper() + r[1:] + ".")
 
     if r := await _browser(t, tools):
+        return r
+    if r := await _music(t, tools):
         return r
 
     # game updates and Steam prices: "did roblox update", "is elden ring on sale", "anything on my wishlist on sale"

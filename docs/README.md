@@ -438,6 +438,26 @@ fixed (`hmjgoilonpblpoamhakkijgoedphnaim`) by the `key` in its manifest, so the 
   out loud), switches for reading pages and for clicking/typing, the off-limits site list (banking, PayPal,
   logins, password managers by default; "+ this site" adds the current one) and recent actions.
 
+## Riff (music player)
+
+`riff/mio.js` is a Riff plugin that lets Mio drive the player. Riff plugins can't listen for connections, so
+the plugin long-polls `assistant/riff.py` on `127.0.0.1:38491` (GET `/mio/poll` waits for a command, POST
+`/mio/result` answers). Both need the token in `~/.local/state/assistant/riff-token`, which the install script
+writes into the plugin, and only a `127.0.0.1`/`localhost` Host header is accepted. The plugin works through
+Riff's own search box, track rows and buttons, like a click, so it also works with Riff on another workspace.
+
+Install: `scripts/install_riff.sh` (copies the plugin into Riff's data folder, `~/.cache/devsize/plugins`,
+and turns it on; backs up `plugins.json`), then restart Riff. Run it again after editing `riff/mio.js`.
+
+- **Songs**: "play blinding lights by the weeknd", "put on some jazz", "listen to tame impala" — searches Riff
+  and plays the best match. Music goes to Riff; YouTube only when you say YouTube or video. Riff is started
+  if it isn't open.
+- **Playlists**: "play my Alex g playlist", "shuffle my lucio playlist", "open my French playlist" (shows it
+  without playing), "what playlists do I have?" — names are matched loosely, so misheard names still work.
+- **More**: "play my liked songs (on shuffle)", "play my wave" / "play some music", "what song is this?",
+  "like this song" / "unlike this song", "turn shuffle on/off".
+- "Pause", "next song", "previous song" control Riff while it plays, otherwise whatever `playerctl` picks.
+
 ## Stretch goals (not enabled)
   Push-to-talk is the default because it costs nothing while idle.
 - Screen awareness: a `look_at_screen` tool (grim → Claude vision) only on explicit request.
