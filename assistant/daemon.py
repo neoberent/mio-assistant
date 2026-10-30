@@ -23,6 +23,7 @@ from .memory import Memory, Usage
 from .stt import STT
 from .tools import ToolBox, sh
 from .tts import TTS, split_sentences
+from .wakeword import strip_name
 
 log = logging.getLogger("assistantd")
 
@@ -337,6 +338,7 @@ class Assistant:
                 log.info("heard: %r", text)
                 if not text or len(text) < 2:
                     return
+            text = strip_name(text)
             if self.learning:  # typos, shorthand and misheard names, typed or spoken
                 text, self._hints = self.learning.correct(text, voice)
             await self.set_state("thinking")

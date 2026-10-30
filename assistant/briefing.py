@@ -46,6 +46,11 @@ def updates_line(updates: str) -> str:
     if int(m[2]):
         line += f" ({m[2]} from the AUR)"
     notable = re.search(r"Notable: (.+)", updates)
+    if total <= 3:  # few enough to just say which
+        names = [n.split()[0] for kind in ("Repo", "AUR") if (m2 := re.search(rf"^{kind}: (.+)", updates, re.M))
+                 for n in m2[1].split(";") if n.strip()]
+        if names:
+            return line + ": " + ", ".join(names) + "."
     if notable:
         names = sorted({n.split()[0] for n in notable[1].split(";") if n.strip()})
         line += ", including " + ", ".join(names[:3])

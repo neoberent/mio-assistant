@@ -57,13 +57,42 @@ def _client() -> httpx.AsyncClient:
                              headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.8"})
 
 
-async def research(query: str, pages: int = 4, words_per_page: int = 550) -> str:
+# ddgs' engines fail often and independently ("No results found" for half of the real
+# questions on 2026-10-21), so try a few before giving up; Wikipedia is the last resort.
+BACKENDS = ("auto", "bing", "duckduckgo", "brave", "mojeek")
+
+
+def search(query: str) -> list[dict]:
     from ddgs import DDGS
 
+    for backend in BACKENDS:
+        try:
+            if hits := DDGS().text(query, max_results=10, backend=backend):
+                return hits
+        except Exception as e:
+            log.info("search %s failed for %r: %s", backend, query, e)
+    return []
+
+
+async def _wiki_hits(client: httpx.AsyncClient, query: str) -> list[dict]:
     try:
-        hits = await asyncio.to_thread(lambda: DDGS().text(query, max_results=10))
+        r = await client.get("https://en.wikipedia.org/w/api.php", params={
+            "action": "query", "list": "search", "srsearch": query, "srlimit": 3, "format": "json"})
+        found = r.json()["query"]["search"]
     except Exception as e:
-        return f"web search failed: {e}"
+        log.info("wikipedia search failed for %r: %s", query, e)
+        return []
+    return [{"href": "https://en.wikipedia.org/wiki/" + h["title"].replace(" ", "_"),
+             "body": re.sub(r"<[^>]+>", "", h.get("snippet", ""))} for h in found]
+
+
+async def research(query: str, pages: int = 4, words_per_page: int = 550) -> str:
+    hits = await asyncio.to_thread(search, query)
+    if not hits:
+        async with _client() as client:
+            hits = await _wiki_hits(client, query)
+    if not hits:
+        return "web search failed: no results from any search engine"
     urls, seen = [], set()
     for h in hits:
         host = urlparse(h["href"]).netloc.lower()

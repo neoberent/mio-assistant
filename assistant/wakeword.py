@@ -38,6 +38,15 @@ def heard_name(text: str, pattern: re.Pattern, bare: bool = False) -> bool:
     t = _ascii(text.lower())
     words = re.sub(r"[^a-z']+", " ", t.replace("mi-o", "mio").replace("me-o", "meo")).split()  # "ré-mi-o"
     return bool(pattern.search(" ".join(words[:4]))) or (bare and bool(re.fullmatch(NAME, " ".join(words))))
+
+
+def strip_name(text: str) -> str:
+    """"Hey Mio, remind me in 5 minutes" → "remind me in 5 minutes": her name isn't part of the request
+    (the self-check once reported "not done yet: Hey Mio"). A greeting on its own stays as it was."""
+    rest = re.sub(rf"^\W*(?:{GREETING}\W+)?{NAME}\b[\s,.!?-]*", "", text, flags=re.I)
+    return rest if re.search(r"\w", rest) else text
+
+
 MODEL = MODELS_DIR / "kws" / "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 
 

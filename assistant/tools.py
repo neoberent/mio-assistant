@@ -175,6 +175,22 @@ def _count(folder: Path, stop: int) -> int:
     return n
 
 
+def _coerce(value, spec: dict):
+    """The model sometimes sends numbers and flags as text (arch_news count="3" crashed on 2026-10-27)."""
+    kind = spec.get("type")
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if kind == "integer" and re.fullmatch(r"[+-]?\d+(?:\.0*)?", v):
+            return int(float(v))
+        if kind == "number" and re.fullmatch(r"[+-]?(?:\d+\.?\d*|\.\d+)", v):
+            return int(v) if v.lstrip("+-").isdigit() else float(v)
+        if kind == "boolean" and v in ("true", "false", "yes", "no"):
+            return v in ("true", "yes")
+    elif kind == "integer" and isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
 # ── tool definitions ────────────────────────────────────────────────────────
 @dataclass
 class Tool:
@@ -330,7 +346,7 @@ class ToolBox:
         if tool is None:
             return f"error: unknown tool {name}"
         allowed = set(tool.params)
-        args = {k: v for k, v in (args or {}).items() if k in allowed}
+        args = {k: _coerce(v, tool.params[k]) for k, v in (args or {}).items() if k in allowed}
         missing = [k for k in tool.required if args.get(k) in (None, "")]
         bad = [k for k, v in args.items() if "enum" in tool.params[k] and v not in tool.params[k]["enum"]]
         if missing or bad:  # tell the model, so it can fix the call instead of us guessing
@@ -774,6 +790,8 @@ class ToolBox:
             parts = [f"{len(repo_l)} repo updates, {len(aur_l)} AUR updates."]
             if notable:
                 parts.append("Notable: " + "; ".join(notable[:8]))
+            if repo_l and len(repo_l) <= 10:  # a few: name them all ("what update is waiting?")
+                parts.append("Repo: " + "; ".join(repo_l))
             if aur_l:
                 parts.append("AUR: " + "; ".join(aur_l[:10]))
             return "\n".join(parts)
@@ -829,13 +847,10 @@ class ToolBox:
                 if not titles:  # last try: a web search knows what was meant
                     from urllib.parse import unquote, urlparse
 
-                    from ddgs import DDGS
+                    from . import web
 
                     host = urlparse(base).netloc
-                    try:
-                        hits = await asyncio.to_thread(lambda: DDGS().text(f"{query} site:{host}", max_results=5))
-                    except Exception:
-                        hits = []
+                    hits = await asyncio.to_thread(web.search, f"{query} site:{host}")
                     titles = [unquote(m[1]).replace("_", " ") for h in hits
                               if (m := re.search(rf"{re.escape(host)}/(?:wiki|title)/([^?#]+)", h.get("href", "")))]
                 if not titles:
@@ -1101,12 +1116,9 @@ class ToolBox:
                    "'arch wiki bluetooth', 'roblox status page'. Use this instead of guessing a URL.", {"query": S},
                    ["query"])
         async def open_best_match(query: str) -> str:
-            from ddgs import DDGS
+            from . import web
 
-            try:
-                hits = await asyncio.to_thread(lambda: DDGS().text(query, max_results=3))
-            except Exception as e:
-                return f"web search failed: {e}"
+            hits = await asyncio.to_thread(web.search, query)
             if not hits:
                 return f"nothing found for '{query}'"
             r = await open_(hits[0]["href"])
