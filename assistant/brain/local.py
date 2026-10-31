@@ -7,6 +7,7 @@ it's small talk. Anything that fails gets a second, deeper local attempt before 
 """
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import re
@@ -220,6 +221,27 @@ def pick_tools(text: str, previous: list[str]) -> list[str]:
     return chosen
 
 
+def own_spelling(args: dict, text: str) -> dict:
+    """Names the model 'corrected' to a more common spelling go back to the user's own words: who=Alec when the
+    user said "alex" → Alex. Only words that are nearly the same and that the user didn't say themselves."""
+    said = {w.lower(): w for w in re.findall(r"[\w']+", text)}
+    out = {}
+    for k, v in args.items():
+        if k in ("who", "name", "query", "game", "app", "label", "playlist") and isinstance(v, str):
+            def fix(m):
+                w = m[0]
+                if len(w) < 4 or w.lower() in said or w.isdigit():
+                    return w
+                close = difflib.get_close_matches(w.lower(), list(said), n=1, cutoff=0.75)
+                if not close or abs(len(close[0]) - len(w)) > 1:
+                    return w
+                mine = said[close[0]]
+                return mine[0].upper() + mine[1:] if w[0].isupper() else mine
+            v = re.sub(r"[\w']+", fix, v)
+        out[k] = v
+    return out
+
+
 class LocalBrain:
     def __init__(self, cfg: dict, persona: dict, tools: ToolBox):
         self.cfg = cfg
@@ -406,6 +428,7 @@ class LocalBrain:
         system = ("Split the user's request into the separate things to do, in order. Each step is a short, complete "
                   "request in the user's own words that makes sense on its own: replace 'it', 'that', 'them' with "
                   "what they refer to. Keep names and numbers exactly. Never add steps the user didn't ask for. "
+                  "A reminder and what it is about stay one step ('remind me in 5 minutes to take the pizza out'). "
                   "If it is really just one thing, return one step.")
         body = {"model": self.cfg["ollama_model"], "stream": False, "think": False,
                 "keep_alive": self.cfg.get("ollama_keep_alive", "5m"),
@@ -711,6 +734,7 @@ class LocalBrain:
                 for k in ("location", "place"):  # qwen3 invents places ("Paris", "your location")
                     if args.get(k) and not _mentioned(args[k], text, history):
                         args.pop(k)
+                args = own_spelling(args, text)  # "send alex …" must not become "Alec"
                 key = f"{name}:{json.dumps(args, sort_keys=True)}"
                 if key in done:  # same call twice (e.g. opening a tab twice): don't repeat the action
                     result = done[key] + " (already done, don't repeat)"

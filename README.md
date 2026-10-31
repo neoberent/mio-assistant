@@ -34,7 +34,7 @@ but any Cubism 3/4/5 model works.
 ## How a request flows
 
 ```
-mic → Silero VAD → faster-whisper (GPU) → router → tools → Kokoro TTS → speakers + avatar lip-sync
+mic → Silero VAD → faster-whisper (GPU) → router → tools → Chatterbox Turbo TTS (Kokoro as fallback) → speakers + avatar lip-sync
                                              │
                      1. regex fast path ─────┤  "volume 40", "next song", "timer 10 minutes"  (no model at all)
                      2. local LLM (Ollama) ──┤  most things, with tool calling
@@ -67,7 +67,7 @@ The parts I put the most work into:
 
 ## Stack
 
-Python 3.12 (uv), faster-whisper, Silero VAD, Kokoro TTS, Ollama, Claude via the Claude Code CLI,
+Python 3.12 (uv), faster-whisper, Silero VAD, Chatterbox Turbo + Kokoro TTS, Ollama, Claude via the Claude Code CLI,
 GTK4 + gtk4-layer-shell + WebKitGTK, pixi.js + pixi-live2d-display, a Manifest V3 browser extension,
 systemd user services.
 

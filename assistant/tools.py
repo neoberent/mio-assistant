@@ -109,7 +109,24 @@ def find_app(query: str) -> dict | None:
         names = {_norm(a["name"]): a for a in apps}
         match = difflib.get_close_matches(_norm(q), list(names), n=1, cutoff=0.75)
         best = names[match[0]] if match else None
+    if best is None and len(_norm(q)) >= 3:  # sounds alike: "riv" → Riff, "kaid" → Kate
+        key = sound_key(q)
+        hits = [a for a in app_index().values() if sound_key(a["name"].split()[0]) == key or sound_key(a["name"]) == key]
+        if len(hits) == 1:
+            best = hits[0]
     return best
+
+
+def sound_key(word: str) -> str:
+    """Rough sound-alike key for short names: first letter + consonant skeleton with similar sounds merged."""
+    w = re.sub(r"[^a-z]", "", word.lower())
+    if not w:
+        return ""
+    w = re.sub(r"ph", "f", w)
+    w = re.sub(r"ck|q|c(?=[aou])", "k", w)
+    w = w.translate(str.maketrans("vzcjxgdbt", "fsskskdpd"))
+    head, rest = w[0], re.sub(r"[aeiouyhw]", "", w[1:])
+    return head + re.sub(r"(.)\1+", r"\1", rest)
 
 
 SITES = {"youtube": "https://www.youtube.com", "github": "https://github.com", "reddit": "https://www.reddit.com",

@@ -23,11 +23,78 @@
   #state.confirming { background: #f9e2af; animation: pulse 1.2s infinite; }
   @keyframes pulse { 70% { box-shadow: 0 0 0 10px rgba(243,139,168,0); } 100% { box-shadow: 0 0 0 0 rgba(243,139,168,0); } }
   @keyframes blink { 50% { opacity: .35; } }
+
+  /* ── stage (full-monitor layout): screen glow, working capsule, sparkle layer ── */
+  :root { --pink: #f5c2e7; --mauve: #cba6f7; --lav: #b4befe; --text: #f5e0dc; --sub: #a6adc8; }
+  body.stage #bubble { left: auto; right: auto; max-width: 320px; transform: translate(-50%, -100%); padding: 10px 16px;
+                       border-radius: 16px; background: rgba(30,30,46,.92); font-size: 15px; line-height: 1.4;
+                       box-shadow: 0 6px 24px rgba(0,0,0,.35), inset 0 0 0 1px rgba(203,166,247,.25); }
+  body.stage #bubble.side { transform: translate(0, -50%); }
+  body.stage #bubble.side.left { transform: translate(-100%, -50%); }
+  body.stage #bubble.on { transform: translate(-50%, -100%); }
+  body.stage #bubble.side.on { transform: translate(0, -50%); }
+  body.stage #bubble.side.left.on { transform: translate(-100%, -50%); }
+  body.stage #state { display: none; }
+  #fx { position: absolute; inset: 0; pointer-events: none; }
+  #glow { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .6s, box-shadow .6s;
+          --g1: rgba(245,194,231,.85); --g2: rgba(203,166,247,.45);
+          box-shadow: inset 0 0 40px 10px var(--g1), inset 0 0 120px 30px var(--g2); }
+  #glow.arrive { opacity: 1; transition: opacity .25s; }
+  #glow.listening { opacity: .45; animation: breathe 2.4s ease-in-out infinite; }
+  #glow.thinking { --g1: rgba(137,180,250,.55); --g2: rgba(180,190,254,.25); opacity: .7; animation: breathe 2.4s ease-in-out infinite; }
+  #glow.confirming { --g1: rgba(249,226,175,.6); --g2: rgba(245,194,231,.3); opacity: .6; animation: breathe 1.6s ease-in-out infinite; }
+  #glow.error { --g1: rgba(250,179,135,.85); --g2: rgba(243,139,168,.4); opacity: 1; animation: flicker .9s steps(1) 1; }
+  @keyframes breathe { 50% { opacity: .2; } }
+  @keyframes flicker { 0% { opacity: 1; } 15% { opacity: .3; } 30% { opacity: 1; } 45% { opacity: .4; } 60%, 100% { opacity: .8; } }
+
+  #status { position: absolute; display: flex; align-items: center; gap: 14px; padding: 9px 22px 9px 9px; border-radius: 999px;
+            background: rgba(30,30,46,.92); font-family: "Inter", "Noto Sans", sans-serif; pointer-events: none;
+            box-shadow: 0 8px 28px rgba(0,0,0,.4), 0 0 24px rgba(203,166,247,.25), inset 0 0 0 1px rgba(203,166,247,.35);
+            opacity: 0; transform: translate(-100%, -50%); transform-origin: right center;
+            transition: opacity .35s, clip-path .55s cubic-bezier(.2,1,.3,1); clip-path: inset(0 0 0 85% round 999px); }
+  #status.right { transform: translate(0, -50%); clip-path: inset(0 85% 0 0 round 999px); }
+  #status.on { opacity: 1; clip-path: inset(-60px -60px -60px -60px round 999px); }
+  #status::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+                   background: linear-gradient(105deg, transparent 35%, rgba(245,194,231,.16) 48%, rgba(255,255,255,.22) 50%, rgba(203,166,247,.16) 52%, transparent 65%);
+                   background-size: 250% 100%; animation: shimmer 3.2s ease-in-out infinite; }
+  @keyframes shimmer { 0% { background-position: 130% 0; } 55%, 100% { background-position: -30% 0; } }
+  .badge { position: relative; width: 46px; height: 46px; flex: none; border-radius: 50%; display: grid; place-items: center;
+           background: radial-gradient(circle at 35% 30%, rgba(245,194,231,.28), rgba(203,166,247,.12)); animation: pulse 2.4s ease-in-out infinite; }
+  .badge::before { content: ""; position: absolute; inset: -3px; border-radius: 50%;
+                   background: conic-gradient(from 0deg, transparent 0 55%, var(--mauve) 80%, var(--pink) 100%);
+                   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+                   animation: spin 1.4s linear infinite; }
+  @keyframes spin { to { transform: rotate(1turn); } }
+  @keyframes pulse { 50% { box-shadow: 0 0 18px 2px rgba(245,194,231,.45); } }
+  .badge svg { width: 24px; height: 24px; position: absolute; transition: opacity .35s, transform .35s; }
+  .badge svg.out { opacity: 0; transform: scale(.6) rotate(-20deg); }
+  .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--pink); animation: ring .7s ease-out forwards; }
+  @keyframes ring { from { transform: scale(1); opacity: .9; } to { transform: scale(2.1); opacity: 0; } }
+  .stext { min-width: 170px; max-width: 300px; position: relative; height: 38px; }
+  .sline { position: absolute; left: 0; top: 0; right: 0; transition: opacity .35s, transform .35s; white-space: nowrap; }
+  .sline.out { opacity: 0; transform: translateY(6px); }
+  .stitle { color: var(--text); font-size: 14.5px; font-weight: 600; line-height: 19px; }
+  .sdetail { color: var(--sub); font-size: 12.5px; line-height: 19px; overflow: hidden; text-overflow: ellipsis; }
+  .sdetail .dots::after { content: ""; animation: dots 1.2s steps(4) infinite; }
+  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  .bar { position: absolute; left: 0; right: 0; bottom: -7px; height: 2px; border-radius: 2px; background: rgba(203,166,247,.15); overflow: hidden; }
+  .bar::before { content: ""; position: absolute; top: 0; bottom: 0; width: 40%; border-radius: 2px;
+                 background: linear-gradient(90deg, transparent, var(--pink), var(--mauve), transparent); animation: slide 1.6s ease-in-out infinite; }
+  @keyframes slide { from { left: -40%; } to { left: 100%; } }
+  .trail { position: absolute; border-radius: 50%; background: rgba(30,30,46,.92); box-shadow: inset 0 0 0 1px rgba(203,166,247,.35);
+           opacity: 0; transition: opacity .4s; pointer-events: none; }
+  .trail.on { animation: think 1.4s ease-in-out infinite; }
+  #t2.on { animation-delay: .2s; }
+  @keyframes think { 0%, 100% { opacity: .55; transform: scale(.85); } 40% { opacity: 1; transform: scale(1.15);
+                     box-shadow: inset 0 0 0 1px rgba(245,194,231,.7), 0 0 8px rgba(245,194,231,.6); } }
 </style>
 </head>
 <body>
+<div id="glow"></div>
 <div id="bubble"></div>
 <div id="state"></div>
+<span class="trail" id="t1"></span><span class="trail" id="t2"></span>
+<div id="status"><div class="badge" id="badge"></div><div class="stext" id="stext"><div class="bar"></div></div></div>
 <script src="vendor/live2dcubismcore.min.js"></script>
 <script src="vendor/pixi.min.js"></script>
 <script src="vendor/cubism4.min.js"></script>

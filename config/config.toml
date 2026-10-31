@@ -17,7 +17,11 @@ no_speech_timeout_s = 5       # give up if nothing is said
 max_record_s = 20
 
 [tts]
-engine = "kokoro"             # kokoro | piper
+engine = "chatterbox"         # chatterbox (GPU, scripts/install_chatterbox.sh) | kokoro | piper — each falls back to the next
+chatterbox_voice = ""         # "" = Chatterbox's own voice; or a 5 s+ .wav to speak in that voice
+chatterbox_device = "cuda"    # cuda | cpu (slow)
+chatterbox_half = true        # speech LM in fp16: ~0.85 GB less VRAM for her brain, same sound
+chatterbox_tempo = 0.92       # speaking speed, pitch kept (Rubber Band R3); 1.0 = as generated
 kokoro_voice = "af_heart"     # af_heart, af_bella, af_nicole, af_sky, jf_alpha (ja) ...
 kokoro_speed = 1.05
 piper_voice = "en_US-amy-medium"
@@ -33,6 +37,7 @@ vision_model = "qwen3.5:9b"  # her own eyes for see_screen: qwen3.5 sees itself 
                               # like "qwen3-vl:4b-instruct" loads only while looking (never in games)
 embed_model = "all-minilm"    # tiny CPU embedding model for learned requests (ollama pull all-minilm)
 local_thinking = "auto"       # auto = think before acting (not for small talk) + a deeper retry before Claude | always | never
+text_only_brain = true        # talk with a copy of the model minus its vision part (0.9 GB VRAM); eyes use the full one
 ask_before_claude = true      # when both local tries fail: research a question herself, else ask you what you meant; Claude only after that
 claude_backend = "cli"        # cli = `claude -p` with your Claude login | api = ANTHROPIC_API_KEY | off
 claude_model = "haiku"        # haiku | sonnet | opus (cli aliases) or a full id for the api backend
@@ -66,6 +71,7 @@ margin_right = 40
 margin_bottom = 0
 scale = 1.0
 hide_after_s = 15             # hide this long after she finishes speaking
+move_around = false           # true = she appears at a fresh spot each time; false = her corner (drag her to move it)
 show_while_listening = true
 # zoom = 1.0                  # >1 crops in on models with wide props; focus = height that stays put (0 top, 1 feet)
 # focus = 1.0

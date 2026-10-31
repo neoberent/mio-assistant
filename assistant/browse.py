@@ -34,7 +34,7 @@ KIND = (r"videos?|vids?|clips?|songs?|results?|search results?|links?|ones?|post
 # a new clause starts at ", " / "then" / "and <verb>" ("search tom and jerry" stays one clause)
 VERB = (r"open|launch|go|head|visit|navigate|search|look|find|google|type|write|enter|press|hit|click|tap|select|"
         r"choose|pick|play|watch|put|pull|bring|scroll|pause|resume|skip|mute|unmute|close|switch|read|tell|show|"
-        r"summari[sz]e|reload|refresh|start|take|then")
+        r"summari[sz]e|reload|refresh|start|take|then|turn|set|lower|raise|remind|send|message|check|like|make")
 SPLIT = re.compile(rf"\s*,\s*(?:and\s+)?(?:then\s+)?|\s+and\s+then\s+|\s+(?:and\s+)?after that\s+|\s+then\s+|"
                    rf"\s+and\s+(?=(?:{VERB})\b)")
 # clauses about a page/browser thing the local model may still turn into a step

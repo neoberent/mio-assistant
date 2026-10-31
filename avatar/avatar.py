@@ -3,12 +3,18 @@
 that renders the Live2D model. Only the model's bounding box accepts input; everything
 else is click-through. Hidden = unmapped, so it costs nothing on the GPU.
 
+Two layouts, chosen each time she appears:
+  stage   — the surface covers her whole monitor; she's drawn in a box at a fresh spot, with the screen glow,
+            working capsule and sparkles around her (normal desktop use).
+  compact — the old small corner window (while a game runs: nothing full-screen over the game).
+
 Listens on $XDG_RUNTIME_DIR/assistant-avatar.sock for JSON lines from assistantd:
   {"cmd": "show"|"hide"|"state"|"speak"|"speak_end"|"error", ...}
 """
 import json
 import os
 import socket
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -62,6 +68,7 @@ class Avatar(Gtk.Application):
         self.view = None
         self.bounds = None
         self.dragging = False
+        self.stage = False
         self.start_hidden = "--show" not in sys.argv
 
     # ── window ──────────────────────────────────────────────────────────────
@@ -130,10 +137,17 @@ class Avatar(Gtk.Application):
 
     def _monitor(self, connector):
         monitors = Gdk.Display.get_default().get_monitors()
-        for i in range(monitors.get_n_items()):
-            m = monitors.get_item(i)
-            if m.get_connector() == connector:
-                return m
+        names = [connector]
+        try:  # configured output missing (renamed/unplugged): use the one you're working on
+            out = subprocess.run(["niri", "msg", "-j", "focused-output"], capture_output=True, text=True, timeout=1)
+            names.append(json.loads(out.stdout).get("name"))
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+        for name in names:
+            for i in range(monitors.get_n_items()):
+                m = monitors.get_item(i)
+                if name and m.get_connector() == name:
+                    return m
         return None
 
     def _apply_geometry(self):
@@ -145,6 +159,19 @@ class Avatar(Gtk.Application):
             w, h = min(w, g.width), min(h, g.height)
             self.cfg["margin_right"] = min(int(self.cfg.get("margin_right", 40)), g.width - w)
             self.cfg["margin_bottom"] = min(int(self.cfg.get("margin_bottom", 0)), g.height - h)
+        if self.stage:  # covers the monitor; the page places her inside
+            for e in (LayerShell.Edge.LEFT, LayerShell.Edge.TOP, LayerShell.Edge.RIGHT, LayerShell.Edge.BOTTOM):
+                LayerShell.set_anchor(self.win, e, True)
+                LayerShell.set_margin(self.win, e, 0)
+            if mon:
+                g = mon.get_geometry()
+                self.win.set_size_request(g.width, g.height)
+                self.win.set_default_size(g.width, g.height)
+            return
+        LayerShell.set_anchor(self.win, LayerShell.Edge.LEFT, False)
+        LayerShell.set_anchor(self.win, LayerShell.Edge.TOP, False)
+        LayerShell.set_margin(self.win, LayerShell.Edge.LEFT, 0)
+        LayerShell.set_margin(self.win, LayerShell.Edge.TOP, 0)
         self.win.set_default_size(w, h)
         self.win.set_size_request(w, h)
         LayerShell.set_margin(self.win, LayerShell.Edge.RIGHT, int(self.cfg.get("margin_right", 40)))
@@ -154,9 +181,9 @@ class Avatar(Gtk.Application):
         surface = self.win.get_surface() if self.win else None
         if surface is None:
             return
-        if self.bounds:
+        if self.bounds and self.bounds[2] >= 1 and self.bounds[3] >= 1:
             x, y, w, h = (int(v) for v in self.bounds)
-            surface.set_input_region(cairo.Region(cairo.RectangleInt(x, y, w, h)))
+            surface.set_input_region(cairo.Region(cairo.RectangleInt(x, y, max(1, w), max(1, h))))
         else:
             surface.set_input_region(cairo.Region())  # fully click-through until the model has loaded
 
@@ -181,16 +208,33 @@ class Avatar(Gtk.Application):
 
     def _save_state(self):
         STATE.parent.mkdir(parents=True, exist_ok=True)
-        keep = {k: self.cfg[k] for k in ("margin_right", "margin_bottom", "scale") if k in self.cfg}
+        keep = {k: self.cfg[k] for k in ("margin_right", "margin_bottom", "scale", "home") if k in self.cfg}
         STATE.write_text(json.dumps(keep))
 
     def js(self, code: str):
         self.view.evaluate_javascript(code, -1, None, None, None, None, None)
 
-    def show(self):
-        if not self.win.get_visible():
+    def show(self, game: bool = False):
+        arriving = not self.win.get_visible()
+        if arriving:  # pick the layout only on a fresh appearance; never jump while she's on screen
+            self.stage = bool(self.cfg.get("stage", True)) and not game
+            mon = self._monitor(self.cfg.get("output"))
+            if mon:
+                LayerShell.set_monitor(self.win, mon)
+            self._apply_geometry()
+            scale = float(self.cfg.get("scale", 1.0))
+            g = mon.get_geometry() if mon else None
+            self.js("avatar.layout(%s)" % json.dumps({
+                "mw": g.width if g else 0, "mh": g.height if g else 0,
+                "stage": self.stage, "w": int(self.cfg.get("width", 360) * scale),
+                "h": int(self.cfg.get("height", 560) * scale), "home": self.cfg.get("home"),
+                "fixed": not self.cfg.get("move_around", False),  # her corner, like the compact window
+                "margins": [int(self.cfg.get("margin_right", 40)), int(self.cfg.get("margin_bottom", 0))],
+                "glow": bool(self.cfg.get("glow", True))}))
             self.win.present()
         self.js("avatar.setActive(true)")
+        if arriving:
+            self.js("avatar.arrive()")
 
     def hide(self):
         self.js("avatar.setActive(false)")
@@ -212,9 +256,27 @@ class Avatar(Gtk.Application):
             self.cfg["margin_bottom"] = max(0, int(self.cfg.get("margin_bottom", 0) - msg["dy"]))
             self._apply_geometry()
             self._save_state()
+        elif t == "stage_drag":  # stage: she moves inside the full-screen surface, so just open up input
+            self.dragging = True
+            surface = self.win.get_surface()
+            if surface:
+                surface.set_input_region(None)
+        elif t == "stage_drop":  # remember where she was dropped
+            self.dragging = False
+            if self.cfg.get("move_around", False):  # her favourite spot, as a fraction of the monitor
+                self.cfg["home"] = [round(msg["fx"], 4), round(msg["fy"], 4)]
+            else:  # her fixed corner: same margins the compact (game) window uses
+                self.cfg["margin_right"] = max(0, int(msg["mr"]))
+                self.cfg["margin_bottom"] = max(0, int(msg["mb"]))
+            self._save_state()
+            self._apply_input_region()
         elif t == "scale":
             self.cfg["scale"] = min(3.0, max(0.4, float(self.cfg.get("scale", 1.0)) * msg["f"]))
-            self._apply_geometry()
+            if self.stage:
+                s = float(self.cfg["scale"])
+                self.js("avatar.resize(%d, %d)" % (self.cfg.get("width", 360) * s, self.cfg.get("height", 560) * s))
+            else:
+                self._apply_geometry()
             self._save_state()
         elif t == "log":
             print("page:", msg.get("text"), flush=True)
@@ -254,7 +316,7 @@ class Avatar(Gtk.Application):
     def _command(self, msg: dict):
         cmd = msg.get("cmd")
         if cmd == "show":
-            self.show()
+            self.show(bool(msg.get("game")))
         elif cmd == "hide":
             self.hide()
         else:

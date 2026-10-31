@@ -15,7 +15,7 @@ log = logging.getLogger("stt")
 # wake checks, where a prompt makes it hallucinate the words from noise.
 VOCAB = ("Hey Mio, open YouTube in Brave. Play Roblox, clip that. Check for updates with paru and pacman on "
          "CachyOS. Niri, Noctalia, kitty, fish, Discord, Steam, Spotify, Hatsune Miku, Wikipedia, GitHub. "
-         "Froststrap, Brave Origin, Kate, Trymacs, Jordan & Semih, Rohaze.")
+         "Froststrap, Brave Origin, Kate, Trymacs, Jordan & Semih, Rohaze. Riff: play my chill playlist.")
 
 # words Whisper keeps getting wrong for this user → what they said
 FIXES = [(r"\b(?:Miu|Meo|Miyo|Mijo)\b", "Mio"), (r"\bPatsune\b", "Hatsune"), (r"\b(?:Road ?blocks?|Roblocks)\b", "Roblox"),
@@ -24,7 +24,11 @@ FIXES = [(r"\b(?:Miu|Meo|Miyo|Mijo)\b", "Mio"), (r"\bPatsune\b", "Hatsune"), (r"
          (r"\bFrost ?(?:trap|strap)\b", "Froststrap"), (r"\bBrave Origins\b", "Brave Origin"),
          (r"\b(open (?:it|them|this|that) in) Cade\b", r"\1 Kate"), (r"\bTrimax\b", "Trymacs"),
          (r"\b(?:Roe|Row|Ro) ?ha(?:yes|ze|zy|t)\b", "Rohaze"),
-         (r"\b(?:all|oh) hot (?=Asian maps)", "Rohaze ")]
+         (r"\b(?:all|oh) hot (?=Asian maps)", "Rohaze "),
+         # the Riff music player: "open RIV", "play it on Reef", "in rift"
+         (r"\bRIV\b", "Riff"),
+         (r"(?i)\b(open|launch|start|close|in|on|to|into|from|with|pause|resume) (?:the )?(?:riv|rif|reef|rift|ref|riffs?)\b",
+          r"\1 Riff")]
 
 
 class STT:

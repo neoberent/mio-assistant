@@ -6,6 +6,7 @@ push-to-talk → record (VAD) → whisper → fast-path | Ollama | Claude → to
 from __future__ import annotations
 
 import asyncio
+import collections
 import datetime as dt
 import json
 import logging
@@ -13,6 +14,7 @@ import os
 import re
 import signal
 import time
+from pathlib import Path
 
 from . import browse, config
 from .audio import Player, Recorder, chime, envelope
@@ -22,7 +24,7 @@ from .brain.local import Escalate, LocalBrain
 from .memory import Memory, Usage
 from .stt import STT
 from .tools import ToolBox, sh
-from .tts import TTS, split_sentences
+from .tts import TTS, split_sentences, strip_tags
 from .wakeword import strip_name
 
 log = logging.getLogger("assistantd")
@@ -56,6 +58,58 @@ COMPOUND = re.compile(r"\b(?:on|in) (youtube|yt) and (open|play|click|start|watc
                       # "look at my screen and tell me what you see": the second part only reports on the first
                       r"\band (?:tell|let) me (?:know )?(?:what|how|if|whether|why|who|which|where) "
                       r"(?:you|it|it'?s|that|this|they|there|he|she)\b", re.I)
+# splitting by the user's own words: "remind me in 10 minutes to take the pizza out and put on some jazz"
+STEP_VERBS = (VERBS + r"|like|unlike|skip|shuffle|lower|raise|increase|decrease|turn|stop|resume|install|update|"
+              r"look|download|copy|paste|type|write|save|minimize|maximize|focus|bring|show|give|ask|call|text|dm|"
+              r"remember|forget|note|add|cancel|stop|enable|disable|toggle|dim|brighten")
+SPLIT_WORDS = re.compile(rf"\s*,\s*(?:and\s+)?(?:then\s+)?(?:also\s+)?|\s+and\s+then\s+|\s+(?:and\s+)?after that\s+|"
+                         rf"\s+then\s+|\s+and\s+also\s+|\s+plus\s+|\s+and\s+(?=(?:{STEP_VERBS})\b)", re.I)
+# a part that is a request on its own: an action verb, a question, or "remind me"
+STANDALONE = re.compile(rf"^(?:(?:hey mio,? |please |also |can you |could you |would you |pls )*)(?:(?:{STEP_VERBS})\b|"
+                        r"(?:what|what's|whats|how|who|when|where|which|why|is|are|does|do|did|will|tell|give)\b)", re.I)
+# words that point back at an earlier part: the planner has to rewrite those ("play one of her songs")
+POINTS_BACK = re.compile(r"\b(?:it(?!\s+is\b)(?!'s)|them|they|their|her|his|him|those|these|this one|that one|"
+                         r"the same)\b", re.I)
+PLAIN = {"a", "an", "the", "to", "for", "of", "in", "on", "at", "and", "or", "my", "me", "i", "you", "your", "is",
+         "be", "it", "that", "this", "with", "from", "up", "down", "some", "please", "say", "saying", "says",
+         "message", "then", "about", "also", "out", "off", "into", "by", "can", "will", "i'll", "i'm", "its", "it's"}
+
+
+def split_steps(text: str) -> list[str] | None:
+    """The parts of a request split at the user's own 'and' / 'then' / commas, when every part makes sense alone.
+    None → ask the planner (a part points back at another one, or isn't a request by itself)."""
+    parts = [p.strip(" .,!?") for p in SPLIT_WORDS.split(text) if p and p.strip(" .,!?")]
+    if len(parts) < 2:
+        return None
+    if all(STANDALONE.match(p) for p in parts) and not any(POINTS_BACK.search(p) for p in parts[1:]):
+        return parts
+    return None
+
+
+def faithful(steps: list[str], text: str) -> list[str] | None:
+    """The planner's steps with words it changed put back ("Alec" → "alex"); None if it invented words
+    (it once turned "like the next one" into "skip the next one")."""
+    import difflib
+
+    said = re.findall(r"[\w']+", text.lower())
+    out = []
+    for step in steps:
+        def fix(m):
+            w = m[0]
+            if w.lower() in said or w.lower() in PLAIN or w.isdigit():
+                return w
+            close = difflib.get_close_matches(w.lower(), said, n=1, cutoff=0.7)
+            if close:
+                return close[0]
+            raise ValueError(w)
+        try:
+            out.append(re.sub(r"[\w']+", fix, step))
+        except ValueError as e:
+            log.info("planner invented %r in %r; not using its plan", str(e), step)
+            return None
+    return out
+
+
 # teaching a routine: "when I say gaming time, open discord, launch roblox and turn on do not disturb"
 TEACH = re.compile(r"^\W*(?:hey mio,? )?(?:when(?:ever)? i say|every time i say|if i say|make a routine called|"
                    r"create a routine called|new routine called)\s+[\"'“]?(.+?)[\"'”]?\s*[,:]\s*(?:(?:you should|please|"
@@ -150,6 +204,9 @@ class Assistant:
             self.dreamer = Dreamer(self, self.cfg.learning, self.cfg.brain["ollama_model"])
             if trained := active_model(self.cfg.learning, self.dreamer.base):
                 use_trained(self, trained)  # her fine-tuned self
+        from . import textbrain
+
+        textbrain.apply(self)  # her brain without the vision projector: fits fully in VRAM next to voice + ears
         self.claude = ClaudeBrain(self.cfg.brain, self.cfg.persona, self.tools)
         self._task: asyncio.Task | None = None
         self._hide_task: asyncio.Task | None = None
@@ -169,7 +226,7 @@ class Assistant:
             self._hide_task = None
         if self.gaming and not self.cfg.gamemode.get("show_avatar", False):
             return  # voice only while a game is running
-        await self.avatar.send(cmd="show")
+        await self.avatar.send(cmd="show", game=bool(self.gaming))  # a game: small corner window, no screen glow
 
     async def hide(self, delay: float = 0):
         async def _later():
@@ -231,7 +288,21 @@ class Assistant:
         text = self.STATUS.get(name)
         if text:
             await self.show()
-            await self.avatar.send(cmd="status", text=text.format(**{k: str(v)[:60] for k, v in args.items()}))
+            text = text.format_map(collections.defaultdict(str, {k: str(v)[:60] for k, v in args.items()}))
+        # every tool gets the working capsule on the stage (the compact bubble only shows the STATUS ones)
+        await self.avatar.send(cmd="status", tool=name, text=text or "", detail=self._status_detail(args))
+
+    @staticmethod
+    def _status_detail(args: dict) -> str:
+        """The one argument worth showing under the capsule title ("lofi hip hop", "~/Downloads")."""
+        for key in ("query", "name", "app", "game", "song", "playlist", "path", "folder", "pattern", "url", "title",
+                    "text", "what", "label", "city", "place", "location", "package", "packages", "action", "command"):
+            v = args.get(key)
+            if v not in (None, "", [], {}):
+                v = ", ".join(map(str, v)) if isinstance(v, list) else str(v)
+                v = re.sub(r"^https?://(www\.)?", "", v.replace(str(Path.home()), "~"))
+                return v if len(v) <= 48 else v[:47] + "…"
+        return ""
 
     # ── speech ──────────────────────────────────────────────────────────────
     async def say(self, text: str):
@@ -249,7 +320,7 @@ class Assistant:
                 nxt = asyncio.create_task(self.tts.synth(sentences[i + 1]))
             env = envelope(audio, sr)
             started = lambda: asyncio.run_coroutine_threadsafe(
-                self.avatar.send(cmd="speak", env=env, fps=30, text=sentences[i]), loop)
+                self.avatar.send(cmd="speak", env=env, fps=30, text=strip_tags(sentences[i])), loop)
             if not await self.player.play(audio, sr, on_start=started):
                 nxt.cancel()
                 break
@@ -544,7 +615,9 @@ class Assistant:
                 await self.learning.done(step, self._trace[start:], reply, src)
             if reply:
                 replies.append(reply)
-            if re.search(r"\b(declined|couldn'?t|can'?t|failed|error)\b", reply or "", re.I) and i < len(steps) - 1:
+            failed = [c for c in self._trace[start:] if str(c.get("result", "")).startswith(("error", "refused",
+                                                                                            "the user declined"))]
+            if failed and i < len(steps) - 1:
                 replies.append(f"I stopped there, so I didn't do: {', '.join(steps[i + 1:])}.")
                 return " ".join(replies)
         if request:  # the planner sometimes drops a part
@@ -615,7 +688,11 @@ class Assistant:
         if not nested and MULTI.search(text) and not COMPOUND.search(text) \
                 and not re.match(r"^\s*(hey )?(ask|use) claude\b", text, re.I) \
                 and self.cfg.brain.get("local_enabled", True) and await self.local.available():
-            steps = await self.local.plan(text)
+            steps = split_steps(text)
+            if steps is None:
+                planned = await self.local.plan(text)
+                steps = faithful(planned, text) if len(planned) > 1 else planned
+                steps = steps or [p.strip(" .,!?") for p in SPLIT_WORDS.split(text) if p and p.strip(" .,!?")]
             if len(steps) > 1:
                 log.info("split into %d steps: %s", len(steps), steps)
                 reply = await self._run_steps(steps, text)

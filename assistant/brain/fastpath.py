@@ -466,10 +466,12 @@ async def handle(text: str, tools: ToolBox, usage=None, last_reply: str = "") ->
         if (n := _num(m[1])) is not None:
             await tools.call("volume", {"mode": "set", "value": n})
             return Result(f"Volume {n} percent.")
-    if re.fullmatch(r"(?:turn (?:it|the volume) up|volume up|louder)", t):
+    BIT = r"(?: (?:a (?:little )?bit|a little|slightly|some|a tad|please))*"  # "turn the volume down a bit"
+    if re.fullmatch(rf"(?:turn (?:it|the volume|the sound|the music) up|volume up|louder|make it louder){BIT}", t):
         await tools.call("volume", {"mode": "up", "value": 10})
         return Result("Louder!")
-    if re.fullmatch(r"(?:turn (?:it|the volume) down|volume down|quieter|softer)", t):
+    if re.fullmatch(rf"(?:turn (?:it|the volume|the sound|the music) down|volume down|quieter|softer|"
+                    rf"make it quieter|lower the volume){BIT}", t):
         await tools.call("volume", {"mode": "down", "value": 10})
         return Result("A bit quieter.")
     if re.fullmatch(r"(?:un)?mute(?: (?:the )?(?:sound|audio|volume))?", t):

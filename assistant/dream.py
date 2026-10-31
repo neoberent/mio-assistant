@@ -76,8 +76,9 @@ def use_trained(assistant, model: str):
     base = assistant.local.cfg["ollama_model"]
     assistant.local.cfg = dict(assistant.local.cfg, ollama_model=model)
     v = assistant.tools.vision
-    assistant.tools.vision = dict(v, ollama_model=model,
-                                  vision_model=model if v.get("vision_model") == base else v.get("vision_model"))
+    same = v.get("vision_model") == base or (base.endswith("-text") and  # brain was textbrain's copy of the eyes
+                                             (v.get("vision_model") or "").split(":")[0] == base[:-5])
+    assistant.tools.vision = dict(v, ollama_model=model, vision_model=model if same else v.get("vision_model"))
 
 
 # ── daemon side ─────────────────────────────────────────────────────────────
@@ -207,6 +208,9 @@ class Dreamer:
             log.info("test dream finished (exit %s), see %s", code, HOME / "train.log")
         elif code == 0 and (trained := active_model(self.cfg, self.base)):
             use_trained(self.a, trained)
+            from . import textbrain
+
+            await asyncio.to_thread(textbrain.apply, self.a)
             log.info("woke up smarter: now using %s (exam %s vs %s for plain %s)", trained, s.get("score"),
                      s.get("base_score"), self.base)
         elif code == 0:

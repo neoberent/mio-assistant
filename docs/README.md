@@ -15,7 +15,7 @@ actually does things on your desktop. When she's done she disappears again.
  │         3. `claude -p` (your login, haiku, 4 turns max, daily cap)         ~1k tokens│
  │ ToolBox: apps, niri, Noctalia, volume, media, files, clipboard, typing, shell        │
  │          → permission gate (allow-list / voice "yes" or notification button) → audit │
- │ Kokoro-82M TTS (CPU) per sentence → PipeWire;  RMS envelope → avatar lip-sync        │
+ │ Chatterbox Turbo (GPU, fp16) or Kokoro per sentence → PipeWire; RMS → lip-sync       │
  └──────────────┬─────────────────────────────────────────────────────────────────────────┘
                 │ $XDG_RUNTIME_DIR/assistant-avatar.sock
  ┌──────────────▼──── assistant-avatar (system Python, GTK4 + gtk4-layer-shell + WebKitGTK) ┐
@@ -50,6 +50,8 @@ local-first routing, which is where most of the token savings come from.
    `~/.config/assistant/`, links `~/.local/bin/assistant`, enables both user services and adds
    `include "assistant.kdl"` to your niri config.
 3. Make sure `claude` is logged in (`claude` → `/login`) — the Claude brain uses that login.
+4. Optional, a much more natural voice: `scripts/install_chatterbox.sh` (Chatterbox Turbo by Resemble AI, MIT,
+   in its own venv; ~4 GB of packages + ~1.5 GB model, NVIDIA GPU, ~2 GB VRAM). Without it she speaks with Kokoro.
 
 ## Daily use
 
@@ -119,11 +121,20 @@ tray icon re-registers by itself if Noctalia restarts. Nothing speaks or shows u
 Restart after editing: `systemctl --user restart assistantd assistant-avatar`.
 
 **Change voice**
+- Chatterbox (default when installed): `engine = "chatterbox"`, speed `chatterbox_tempo = 0.92` (pitch kept,
+  via the `rubberband` CLI), `chatterbox_half = true` (fp16, less VRAM). It also performs `[laugh]`, `[sigh]`,
+  `[chuckle]` written into her replies. Any engine that fails falls back to the next (Chatterbox → Kokoro → Piper).
 - Kokoro voices: `kokoro_voice = "af_heart"` (also `af_bella`, `af_nicole`, `af_sky`, `af_sarah`,
   `bf_emma` British, `jf_alpha` Japanese …). Speed: `kokoro_speed`.
 - Piper instead (lighter, more robotic): `engine = "piper"`, `piper_voice = "en_US-amy-medium"`.
   New Piper voices: `PIPER_VOICE=en_US-lessac-medium scripts/fetch_assets.sh` then set `piper_voice`.
   Browse voices at https://rhasspy.github.io/piper-samples/
+
+**Her stage (screen glow and working capsule)**
+- When she appears on the desktop her overlay covers the monitor: the screen edges glow (pink when she listens,
+  blue while she thinks, amber on errors) and a capsule next to her shows what she's doing ("Searching the web",
+  "Getting your music", …) with the detail. During games she keeps the small corner window without the glow.
+- `[avatar] move_around = true` lets her appear at a fresh spot each time; `glow = false` turns the glow off.
 
 **Change the character**
 1. Put a Cubism 3/4/5 model folder (the one containing `*.model3.json`) into `avatar/web/models/`.

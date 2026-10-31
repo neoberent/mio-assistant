@@ -116,7 +116,8 @@ SLIPS = [(r"\b(this|next|last) weak\b", r"\1 week"), (r"\bturn of\b", "turn off"
          (r"\bdoesnt\b", "doesn't"), (r"\bisnt\b", "isn't"), (r"\bim\b", "I'm"), (r"\bive\b", "I've"),
          (r"\bhole (screen|thing|day|week|playlist|album|folder)\b", r"whole \1"), (r"\bfile manger\b", "file manager"),
          (r"\bclos (the|this|that|it|my|all)\b", r"close \1"), (r"\bthere (on|online|playing)\b", r"they're \1")]
-PERSON = {"with", "to", "message", "msg", "dm", "friend", "tell", "ping", "text", "call", "invite", "named", "called"}
+PERSON = {"with", "to", "message", "msg", "dm", "friend", "tell", "ping", "text", "call", "invite", "named", "called",
+          "send", "ask", "write", "remind", "for", "from", "and", "answer", "reply"}
 # misspellings the sound/typo rules can't settle on their own
 TYPOS = {"fourty": "forty", "alot": "a lot", "untill": "until", "wierd": "weird", "recieve": "receive",
          "definately": "definitely", "seperate": "separate", "tommorow": "tomorrow", "tommorrow": "tomorrow",
@@ -266,7 +267,8 @@ class Lexicon:
 
     def _near_name(self, w: str) -> bool:
         """Sounds like a real name she knows ("trimax" ~ Trymacs): left to correct(), never spelled into a word."""
-        return any(similarity(w, p) >= 0.75 for n in self.names for p in _words(n) if len(p) >= 4 and
+        parts = {q for n in self.names for p in _words(n) for q in (p, re.sub(r"\d+$", "", p))}  # Mix101 → mix
+        return any(similarity(w, p) >= 0.75 for p in parts if len(p) >= 4 and
                    abs(len(p) - len(w)) <= 2 and p not in self.common and p not in self.domain)
 
     def _spell_word(self, w: str, person: bool = False) -> str | None:

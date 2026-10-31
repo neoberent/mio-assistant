@@ -59,18 +59,32 @@ def _client() -> httpx.AsyncClient:
 
 # ddgs' engines fail often and independently ("No results found" for half of the real
 # questions on 2026-10-21), so try a few before giving up; Wikipedia is the last resort.
-BACKENDS = ("auto", "bing", "duckduckgo", "brave", "mojeek")
+# One after the other cost seconds per failing engine (2026-10-31: duckduckgo/brave/mojeek failed every time, auto
+# and bing half the time), so they now all run at once and the first one with results wins.
+BACKENDS = ("auto", "bing", "google", "duckduckgo", "brave", "mojeek")
 
 
-def search(query: str) -> list[dict]:
+def search(query: str, timeout: float = 6.0) -> list[dict]:
+    import concurrent.futures as cf
+
     from ddgs import DDGS
 
-    for backend in BACKENDS:
+    def one(backend: str) -> list[dict]:
         try:
-            if hits := DDGS().text(query, max_results=10, backend=backend):
-                return hits
+            return DDGS().text(query, max_results=10, backend=backend) or []
         except Exception as e:
             log.info("search %s failed for %r: %s", backend, query, e)
+            return []
+
+    pool = cf.ThreadPoolExecutor(max_workers=len(BACKENDS))
+    try:
+        for f in cf.as_completed([pool.submit(one, b) for b in BACKENDS], timeout=timeout):
+            if hits := f.result():
+                return hits
+    except cf.TimeoutError:
+        log.info("search timed out for %r", query)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)  # the slower engines finish in the background
     return []
 
 
@@ -86,7 +100,10 @@ async def _wiki_hits(client: httpx.AsyncClient, query: str) -> list[dict]:
              "body": re.sub(r"<[^>]+>", "", h.get("snippet", ""))} for h in found]
 
 
-async def research(query: str, pages: int = 4, words_per_page: int = 550) -> str:
+async def research(query: str, pages: int = 3, words_per_page: int = 400, deadline: float = 3.0) -> str:
+    """Search, then read the top pages for at most `deadline` seconds: a slow site never holds up the answer
+    (its search snippet is used instead), and the snippets of the other hits come along — they usually hold
+    the answer to a quick question already."""
     hits = await asyncio.to_thread(search, query)
     if not hits:
         async with _client() as client:
@@ -103,7 +120,18 @@ async def research(query: str, pages: int = 4, words_per_page: int = 550) -> str
         if len(urls) >= pages + 2:  # a couple of spares for pages that fail
             break
     async with _client() as client:
-        results = await asyncio.gather(*(fetch_text(client, h["href"], words_per_page) for h in urls))
+        tasks = [asyncio.create_task(fetch_text(client, h["href"], words_per_page)) for h in urls]
+        _, slow = await asyncio.wait(tasks, timeout=deadline)
+        for t in slow:
+            t.cancel()
+        results = []
+        for t in tasks:
+            try:
+                results.append(t.result() if t.done() and not t.cancelled() else ("", ""))
+            except Exception:  # noqa: BLE001 - a failed page just falls back to its snippet
+                results.append(("", ""))
+        if slow:
+            log.info("research %r: %d slow page(s) skipped after %.0fs", query, len(slow), deadline)
     out, n = [], 0
     for h, (title, text) in zip(urls, results):
         if n >= pages:
@@ -112,10 +140,14 @@ async def research(query: str, pages: int = 4, words_per_page: int = 550) -> str
         if not body:
             continue
         n += 1
-        out.append(f"[{n}] {title} — {h['href']}\n{body}")
-    if not out:
+        out.append(f"[{n}] {title or urlparse(h['href']).netloc} — {h['href']}\n{body}")
+    used = {h["href"] for h in urls[:n]}
+    snippets = [f"- {urlparse(h['href']).netloc}: {_words(h.get('body', ''), 45)}" for h in hits
+                if h.get("href") not in used and h.get("body")][:5]
+    if not out and not snippets:
         return "no usable results"
-    return (f"Web results for '{query}' — cite sources by site name:\n\n" + "\n\n".join(out))
+    more = ("\n\nMore search snippets:\n" + "\n".join(snippets)) if snippets else ""
+    return f"Web results for '{query}' — cite sources by site name:\n\n" + "\n\n".join(out) + more
 
 
 async def read_url(url: str, words: int = 2200) -> str:

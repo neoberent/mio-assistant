@@ -1,0 +1,272 @@
+{
+ "about": "Long, multi-part spoken requests (2026-10-31, user: 'she doesn't know or messes up on longer requests'). Quiz only; every listed call must happen.",
+ "lessons": [],
+ "quiz": [
+  {
+   "say": "open riff and play my chill playlist, then set a timer for 20 minutes",
+   "teach": [
+    {
+     "name": "riff",
+     "args": {
+      "action": "playlist",
+      "query": "chill"
+     }
+    },
+    {
+     "name": "timer",
+     "args": {
+      "action": "set"
+     }
+    }
+   ],
+   "ok": [
+    "launch_app",
+    "open"
+   ]
+  },
+  {
+   "say": "check if my pc needs updates and also tell me the weather for tomorrow",
+   "teach": [
+    {
+     "name": "system_updates",
+     "args": {}
+    },
+    {
+     "name": "weather",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "say": "search youtube for lofi hip hop, play the first video and turn the volume down a bit",
+   "teach": [
+    {
+     "name": "youtube_play",
+     "args": {
+      "query": "lofi hip hop"
+     }
+    },
+    {
+     "name": "volume",
+     "args": {
+      "mode": "down"
+     }
+    }
+   ]
+  },
+  {
+   "say": "remind me in 10 minutes to take the pizza out and put on some jazz",
+   "teach": [
+    {
+     "name": "timer",
+     "args": {
+      "action": "set"
+     }
+    },
+    {
+     "name": "riff",
+     "args": {
+      "action": "play",
+      "query": "jazz"
+     }
+    }
+   ]
+  },
+  {
+   "say": "what's using the most ram right now and how much disk space do i have left",
+   "teach": [
+    {
+     "name": "run_shell",
+     "args": {}
+    }
+   ],
+   "ok": [
+    "system_info"
+   ]
+  },
+  {
+   "say": "open discord and send alex a message that i'll be online in 10 minutes",
+   "teach": [
+    {
+     "name": "discord",
+     "args": {
+      "action": "send",
+      "who": "Alex",
+      "text": "online"
+     }
+    }
+   ]
+  },
+  {
+   "say": "what changed in the last roblox update and is there any new arch news",
+   "teach": [
+    {
+     "name": "game_news",
+     "args": {
+      "game": "roblox"
+     }
+    },
+    {
+     "name": "arch_news",
+     "args": {
+      "source": "arch"
+     }
+    }
+   ]
+  },
+  {
+   "say": "close the reddit tab, then open github and search for niri",
+   "teach": [
+    {
+     "name": "browser_tabs",
+     "args": {
+      "action": "close",
+      "query": "reddit"
+     }
+    },
+    {
+     "name": "open",
+     "args": {}
+    }
+   ],
+   "ok": [
+    "search_site"
+   ]
+  },
+  {
+   "say": "how hot is my graphics card and which program is using it the most",
+   "teach": [
+    {
+     "name": "system_health",
+     "args": {}
+    },
+    {
+     "name": "run_shell",
+     "args": {}
+    }
+   ],
+   "ok": [
+    "system_info"
+   ]
+  },
+  {
+   "say": "find the pdf i downloaded yesterday and open it",
+   "teach": [
+    {
+     "name": "find_files",
+     "args": {
+      "kind": "pdf"
+     }
+    },
+    {
+     "name": "open",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "say": "turn the night light on, set the volume to 30 percent and play my indie playlist",
+   "teach": [
+    {
+     "name": "shell_panel",
+     "args": {}
+    },
+    {
+     "name": "volume",
+     "args": {
+      "mode": "set"
+     }
+    },
+    {
+     "name": "riff",
+     "args": {
+      "action": "playlist",
+      "query": "indie"
+     }
+    }
+   ]
+  },
+  {
+   "say": "what's the weather in berlin and in hamburg, and which one is warmer",
+   "teach": [
+    {
+     "name": "weather",
+     "args": {
+      "location": "berlin"
+     }
+    },
+    {
+     "name": "weather",
+     "args": {
+      "location": "hamburg"
+     }
+    }
+   ]
+  },
+  {
+   "say": "look up who hatsune miku is and then play one of her songs",
+   "teach": [
+    {
+     "name": "riff",
+     "args": {
+      "action": "play",
+      "query": "hatsune miku"
+     }
+    }
+   ],
+   "ok": [
+    "web_research",
+    "youtube_play"
+   ]
+  },
+  {
+   "say": "pause the music, remember that i like phonk and then tell me what time it is in tokyo",
+   "teach": [
+    {
+     "name": "riff",
+     "args": {
+      "action": "pause"
+     }
+    },
+    {
+     "name": "remember",
+     "args": {}
+    }
+   ],
+   "ok": [
+    "world_clock",
+    "media"
+   ]
+  },
+  {
+   "say": "hey can you check how much free ram i have and if it's less than 4 gigs tell me what's using the most",
+   "teach": [
+    {
+     "name": "system_info",
+     "args": {}
+    }
+   ],
+   "ok": [
+    "run_shell"
+   ]
+  },
+  {
+   "say": "skip this song, like the next one and turn shuffle on",
+   "teach": [
+    {
+     "name": "riff",
+     "args": {
+      "action": "like"
+     }
+    },
+    {
+     "name": "riff",
+     "args": {
+      "action": "shuffle_on"
+     }
+    }
+   ],
+   "ok": []
+  }
+ ]
+}

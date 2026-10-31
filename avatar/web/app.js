@@ -43,6 +43,7 @@
 
   // While dragging, the window covers the whole monitor and `frame` is where her normal window would be.
   let frame = null;
+  let lift = 0, quiet = false;  // lift: vertical offset for drop-ins and hops; quiet: don't spam bounds mid-animation
   function fit() {
     if (!model) return;
     const W = window.innerWidth, H = window.innerHeight;
@@ -51,9 +52,11 @@
     const s = Math.min(w / a.w, h / a.h) * 0.98 * zoom;
     model.scale.set(s);
     model.anchor.set(0, 0);
-    model.position.set(fx + w / 2 - (a.x + a.w / 2) * s, fy + h * focus - (a.y + a.h * focus) * s);
-    if (frame) return;
+    model.position.set(fx + w / 2 - (a.x + a.w / 2) * s, fy + lift + h * focus - (a.y + a.h * focus) * s);
+    drawn = { x: model.position.x + a.x * s, y: model.position.y + a.y * s, w: a.w * s, h: a.h * s };
+    if (drag || quiet) return;  // input region only when she's standing still
     const x = model.position.x + a.x * s, y = model.position.y + a.y * s;
+    if (x + a.w * s <= 0 || y + a.h * s <= 0 || x >= W || y >= H) return;
     post({ t: "bounds", x: Math.max(0, x), y: Math.max(0, y),
            w: Math.min(W, x + a.w * s) - Math.max(0, x), h: Math.min(H, y + a.h * s) - Math.max(0, y) });
   }
@@ -266,6 +269,7 @@
       core.setParameterValueById("ParamMouthOpenY", mouth);
       applyEmotion(core);
     });
+    if (pendingArrive) { pendingArrive = false; arrive(); }
   }
 
   // ── drag / scale / clicks (only reach us inside the model's input region) ──
@@ -278,6 +282,17 @@
     if (e.button === 0) drag = { x: e.clientX, y: e.clientY, moved: false, start: null, ending: false };
   });
   window.addEventListener("pointermove", (e) => {
+    if (stage && drag) {
+      if (!drag.moved) {
+        if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4) return;
+        drag.moved = true; drag.fx = frame.x; drag.fy = frame.y;
+        post({ t: "stage_drag" });
+      }
+      frame.x = Math.max(0, Math.min(innerWidth - frame.w, drag.fx + e.clientX - drag.x));
+      frame.y = Math.max(0, Math.min(innerHeight - frame.h, drag.fy + e.clientY - drag.y));
+      fit(); placeUi();
+      return;
+    }
     if (!drag || drag.ending) return;
     if (!drag.moved) {
       if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4) return;
@@ -299,6 +314,17 @@
     if (frame) { frame.x = drag.pos.x; frame.y = drag.pos.y; fit(); }
   });
   window.addEventListener("pointerup", () => {
+    if (stage && drag) {
+      const moved = drag.moved; drag = null;
+      if (moved) {
+        home = [frame.x / Math.max(1, innerWidth - frame.w), frame.y / Math.max(1, innerHeight - frame.h)];
+        post({ t: "stage_drop", fx: home[0], fy: home[1], mr: innerWidth - frame.x - frame.w, mb: innerHeight - frame.y - frame.h });
+        margins = [innerWidth - frame.x - frame.w, innerHeight - frame.y - frame.h];
+        lastSpot = "home";
+        fit();
+      }
+      return;
+    }
     if (!drag) return;
     if (drag.moved) {
       const dx = drag.start ? drag.pos.x - drag.start.x : 0, dy = drag.start ? drag.pos.y - drag.start.y : 0;
@@ -308,6 +334,14 @@
     } else drag = null;
   });
   window.addEventListener("resize", () => {
+    if (stage) {
+      if (frame) {
+        frame.x = Math.max(0, Math.min(frame.x, innerWidth - frame.w));
+        frame.y = Math.max(0, Math.min(frame.y, innerHeight - frame.h));
+      }
+      fit(); placeUi();
+      return;
+    }
     if (drag && drag.pending && window.innerWidth >= drag.pending.mw) {  // window now covers the monitor
       frame = { x: drag.pos.x, y: drag.pos.y, w: drag.pending.w, h: drag.pending.h };
       drag.pending = null;
@@ -323,6 +357,7 @@
   function say(text) {
     if (!text) return;
     bubble.textContent = text;
+    placeUi();
     bubble.classList.add("on");
     clearTimeout(bubbleTimer);
     bubbleTimer = setTimeout(() => bubble.classList.remove("on"), 4000 + text.length * 40);
@@ -331,6 +366,215 @@
   function gesture() {
     const groups = Object.keys(model?.internalModel?.settings?.motions || {}).filter((g) => !/idle/i.test(g));
     if (groups.length && Math.random() < 0.4) model.motion(groups[Math.floor(Math.random() * groups.length)]);
+  }
+
+  // ── stage: fresh spot per arrival, screen glow, working capsule, sparkles ──
+  // Stage layout = the surface covers her monitor and `frame` is her box inside it (avatar.py picks the layout).
+  let stage = false, glowEnabled = true, home = null, box = { w: 360, h: 560 }, lastSpot = null, pendingArrive = false;
+  let monitor = { w: 0, h: 0 }, fixed = true, margins = [40, 0];
+  let drawn = null;  // where her drawn body is right now (window pixels), set by fit()
+  const glow = document.getElementById("glow");
+  const statusEl = document.getElementById("status"), badge = document.getElementById("badge"), stext = document.getElementById("stext");
+  const trail1 = document.getElementById("t1"), trail2 = document.getElementById("t2");
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const backOut = (k) => { const c = 1.7; return 1 + (c + 1) * Math.pow(k - 1, 3) + c * Math.pow(k - 1, 2); };
+  const anim = (ms, f) => new Promise((r) => {
+    const st = performance.now();
+    const step = () => { const k = Math.min(1, (performance.now() - st) / ms); f(k); k < 1 ? requestAnimationFrame(step) : r(); };
+    step();
+  });
+
+  function spots() {
+    const W = innerWidth, H = innerHeight, w = box.w, h = box.h, m = 40;
+    const s = { bottomRight: [W - w - m, H - h], bottomLeft: [m, H - h], right: [W - w - m, (H - h) * 0.45], top: [(W - w) / 2, 24] };
+    if (home) s.home = [home[0] * (W - w), home[1] * (H - h)];
+    return s;
+  }
+  function pickSpot() {  // never the same spot twice in a row; her favourite (dragged) spot comes up more often
+    if (fixed) return [innerWidth - margins[0] - box.w, innerHeight - margins[1] - box.h];  // her corner
+    const s = spots();
+    let keys = Object.keys(s).filter((k) => k !== lastSpot);
+    if (s.home && lastSpot !== "home" && Math.random() < 0.4) keys = ["home"];
+    const k = keys[Math.floor(Math.random() * keys.length)];
+    lastSpot = k;
+    return s[k];
+  }
+
+  async function arrive() {
+    if (!stage) { model.alpha = 1; lift = 0; fit(); return; }
+    model.alpha = 0; quiet = true;
+    // the surface grows to the monitor only after it's mapped: wait for that before choosing a spot
+    for (let i = 0; i < 60 && monitor.w && (innerWidth < monitor.w - 2 || innerHeight < monitor.h - 2); i++) await sleep(16);
+    const [x, y] = pickSpot();
+    frame = { x: Math.max(0, Math.min(innerWidth - box.w, x)), y: Math.max(0, Math.min(innerHeight - box.h, y)), w: box.w, h: box.h };
+    model.alpha = 0; quiet = true; lift = -80; fit(); placeUi();
+    if (glowEnabled) { glow.className = "arrive"; await sleep(380); }
+    await anim(650, (k) => { model.alpha = Math.min(1, k * 2.2); lift = -80 * (1 - backOut(k)); fit(); });
+    lift = 0; quiet = false; fit(); placeUi();
+    if (drawn) burst(drawn.x + drawn.w / 2, drawn.y + drawn.h * 0.92, 14, 2.4);
+    setTimeout(() => { if (glow.className === "arrive") { glow.className = ""; setGlow(curState); } }, 500);
+  }
+
+  // ── screen glow by state ──
+  let curState = "idle";
+  function setGlow(st) {
+    if (st !== "error") curState = st;
+    if (!stage || !glowEnabled) { glow.className = ""; return; }
+    if (glow.className === "arrive" && st === "listening") return;  // the arrival flash fades into it by itself
+    const cls = { listening: "listening", thinking: "thinking", thinking_hard: "thinking", confirming: "confirming", error: "error" }[st] || "";
+    glow.className = cls;
+    if (st === "error") setTimeout(() => { if (glow.className === "error") setGlow(curState); }, 1500);
+  }
+
+  // ── where the bubble and capsule go: beside her head, on the side facing the middle of the screen ──
+  let statusRight = false;
+  function placeUi() {
+    if (!stage || !drawn) {
+      bubble.style.left = bubble.style.top = ""; bubble.classList.remove("side", "left");
+      return;
+    }
+    const W = innerWidth, cx = drawn.x + drawn.w / 2, headY = drawn.y + drawn.h * 0.17;
+    statusRight = cx < W / 2;
+    statusEl.classList.toggle("right", statusRight);
+    statusEl.style.left = (statusRight ? drawn.x + drawn.w + 20 : drawn.x - 20) + "px";
+    statusEl.style.top = headY + "px";
+    const tx = statusRight ? drawn.x + drawn.w : drawn.x;
+    trail1.style.cssText = `left:${statusRight ? tx + 4 : tx - 14}px;top:${headY + 30}px;width:10px;height:10px`;
+    trail2.style.cssText = `left:${statusRight ? tx - 4 : tx - 2}px;top:${headY + 46}px;width:6px;height:6px`;
+    if (drawn.y > 120) {  // room above her head
+      bubble.classList.remove("side", "left");
+      bubble.style.left = Math.max(170, Math.min(W - 170, cx)) + "px";
+      bubble.style.top = (drawn.y - 14) + "px";
+    } else {  // at the top of the screen: beside her, opposite the capsule
+      bubble.classList.add("side"); bubble.classList.toggle("left", statusRight);
+      bubble.style.left = (statusRight ? drawn.x - 16 : drawn.x + drawn.w + 16) + "px";
+      bubble.style.top = headY + "px";
+    }
+  }
+
+  // ── working capsule ──
+  document.body.insertAdjacentHTML("beforeend", `<svg width="0" height="0" style="position:absolute"><defs>
+    <linearGradient id="mioGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f5c2e7"/><stop offset="1" stop-color="#cba6f7"/></linearGradient></defs></svg>`);
+  const svg = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="url(#mioGrad)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+  const ICON = {
+    web: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/>'),
+    music: svg('<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>'),
+    files: svg('<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><path d="M3 10h18"/>'),
+    timer: svg('<circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5"/><path d="M9.5 2.5h5"/><path d="M18.5 6.5l1.5-1.5"/>'),
+    system: svg('<rect x="3" y="4" width="18" height="12" rx="2.5"/><path d="M8 20h8"/><path d="M12 16v4"/><path d="M7 12l2.5-3 2.5 2 3-4 2 2"/>'),
+    shell: svg('<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7 9l3 2.5L7 14"/><path d="M12.5 14H17"/>'),
+    screen: svg('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>'),
+    app: svg('<rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><path d="M17 13.5v7M13.5 17h7"/>'),
+    game: svg('<path d="M7 8h10a4 4 0 0 1 4 4.5l-.6 3.4a2.3 2.3 0 0 1-4 1L15 15H9l-1.4 1.9a2.3 2.3 0 0 1-4-1L3 12.5A4 4 0 0 1 7 8z"/><path d="M8 11v3M6.5 12.5h3"/><circle cx="16" cy="11.5" r=".6"/><circle cx="17.5" cy="13.5" r=".6"/>'),
+    browser: svg('<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/><circle cx="6.5" cy="6.5" r=".5"/><circle cx="9" cy="6.5" r=".5"/>'),
+    video: svg('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.5v5l4.5-2.5z"/>'),
+    package: svg('<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5"/><path d="M12 12v9"/>'),
+    news: svg('<rect x="3" y="4" width="15" height="16" rx="2"/><path d="M18 8h3v10a2 2 0 0 1-2 2"/><path d="M7 8h7M7 12h7M7 16h4"/>'),
+    memory: svg('<path d="M12 20s-7-4.3-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.7-7 10-7 10z"/>'),
+    clip: svg('<rect x="3" y="8" width="18" height="12" rx="2"/><path d="M3 8l3-4h3l-3 4M9 8l3-4h3l-3 4M15 8l3-4h3"/>'),
+    phone: svg('<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>'),
+    weather: svg('<path d="M7 18a4 4 0 0 1-.5-8 5.5 5.5 0 0 1 10.6 1.5A3.3 3.3 0 0 1 17 18z"/>'),
+    keys: svg('<rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M7.5 14h9"/>'),
+    volume: svg('<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>'),
+    chat: svg('<path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 3.5V17A2.5 2.5 0 0 1 4 14.5z"/>'),
+    sparkle: svg('<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/>'),
+  };
+  const LOOKS = [  // tool name → icon + title (first match wins)
+    [/^wikipedia$/, "web", "Checking Wikipedia"], [/^arch_wiki$/, "web", "Checking the ArchWiki"],
+    [/^(read_link|read_clipboard_link|browser_page)$/, "web", "Reading the page"],
+    [/^(web_research|search_site|open_best_match|web)$/, "web", "Searching the web"],
+    [/^youtube/, "video", "Finding the video"], [/^browser_video$/, "video", "Controlling the video"],
+    [/^browser_history$/, "browser", "Searching your history"], [/^browser/, "browser", "In your browser"],
+    [/^(riff|music)/, "music", "Getting your music"], [/^media$/, "music", "Controlling playback"],
+    [/^tidy_downloads$/, "files", "Tidying your Downloads"], [/^trash$/, "files", "Moving to the trash"],
+    [/^move_file$/, "files", "Moving files"], [/^(find_files|list_files|files)$/, "files", "Looking through files"],
+    [/^world_clock$/, "timer", "Checking the clock"], [/^timers?$/, "timer", "Setting a timer"],
+    [/^install_updates$/, "package", "Installing updates"], [/^install_packages$/, "package", "Installing packages"],
+    [/^(system_updates|check_install|package_info|packages)$/, "package", "Checking packages"],
+    [/^arch_news$/, "news", "Reading the news"], [/^game_news$/, "news", "Reading the patch notes"],
+    [/^game_price$/, "game", "Checking Steam prices"], [/^(launch_game|games|steam_library)$/, "game", "Starting your game"],
+    [/^(system_health|system_info|system)$/, "system", "Checking your PC"],
+    [/^(run_shell|shell|shell_panel)$/, "shell", "Running a command"],
+    [/^screen|look_at_screen|read_screen/, "screen", "Looking at your screen"],
+    [/^(launch_app|open|focus_window|list_windows|niri_action|apps|desktop)$/, "app", "Opening things"],
+    [/^clip$/, "clip", "Saving a clip"], [/^phone$/, "phone", "Talking to your phone"], [/^weather$/, "weather", "Checking the weather"],
+    [/^(press_keys|type_text|keys)$/, "keys", "Typing for you"], [/^volume$/, "volume", "Changing the volume"],
+    [/^discord$/, "chat", "On Discord"], [/^(remember|memory)$/, "memory", "Remembering that"],
+    [/^(knowledge|search_my_setup|setup)$/, "memory", "Checking my notes"], [/^routines?$/, "sparkle", "Running your routine"],
+  ];
+  const toolLook = (tool) => { for (const [re, icon, title] of LOOKS) if (re.test(tool || "")) return [icon, title]; return ["sparkle", "Working on it"]; };
+
+  let statusOn = false, curIcon = null, curLine = null, lastTool = null, lastDetail = null;
+  function showStatus(tool, text, detail) {
+    if (!stage) return;
+    const [icon, title] = toolLook(tool);
+    detail = (detail || (text || "").replace(/…$/, "") || "").trim();
+    if (detail.toLowerCase().startsWith(title.toLowerCase())) detail = "";  // don't repeat the title
+    if (statusOn && tool === lastTool && detail === lastDetail) return;
+    lastTool = tool; lastDetail = detail;
+    for (const old of [curIcon, curLine]) if (old) { old.classList.add("out"); setTimeout(() => old.remove(), 400); }
+    badge.insertAdjacentHTML("beforeend", ICON[icon]);
+    curIcon = badge.lastElementChild; curIcon.classList.add("out");
+    const line = document.createElement("div");
+    line.className = "sline out";
+    line.innerHTML = '<div class="stitle"></div><div class="sdetail"><span class="d"></span><span class="dots"></span></div>';
+    line.querySelector(".stitle").textContent = title;
+    line.querySelector(".d").textContent = detail;
+    stext.appendChild(line); curLine = line;
+    const ic = curIcon;
+    requestAnimationFrame(() => requestAnimationFrame(() => { ic.classList.remove("out"); line.classList.remove("out"); }));
+    if (!statusOn) {
+      statusOn = true; placeUi();
+      statusEl.classList.add("on"); trail1.classList.add("on"); trail2.classList.add("on");
+    }
+    badge.insertAdjacentHTML("beforeend", '<span class="ring"></span>');
+    const ring = badge.lastElementChild; setTimeout(() => ring.remove(), 800);
+    setTimeout(() => { const b = badge.getBoundingClientRect(); burst(b.left + b.width / 2, b.top + b.height / 2, 18, 3.2); }, 60);
+  }
+  function hideStatus() {
+    if (!statusOn) return;
+    statusOn = false; lastTool = lastDetail = null;
+    statusEl.classList.remove("on"); trail1.classList.remove("on"); trail2.classList.remove("on");
+  }
+
+  // ── sparkles (own canvas above her; only animates while there is something to draw) ──
+  const fxc = document.createElement("canvas"); fxc.id = "fx"; document.body.appendChild(fxc);
+  const g = fxc.getContext("2d"), parts = [];
+  const COL = ["#f5c2e7", "#cba6f7", "#b4befe", "#f9e2af", "#ffffff"];
+  function sizeFx() { const d = devicePixelRatio || 1; fxc.width = innerWidth * d; fxc.height = innerHeight * d; g.setTransform(d, 0, 0, d, 0, 0); }
+  sizeFx(); window.addEventListener("resize", sizeFx);
+  const star = (x, y, r) => {
+    g.beginPath();
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, rr = i % 2 ? r * .35 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+    g.closePath(); g.fill();
+  };
+  let fxRunning = false;
+  function fxTick() {
+    g.clearRect(0, 0, innerWidth, innerHeight);
+    if (statusOn && Math.random() < 0.12) {  // the odd sparkle drifting off the capsule
+      const c = statusEl.getBoundingClientRect();
+      parts.push({ x: c.left + Math.random() * c.width, y: Math.random() < .5 ? c.top : c.bottom, vx: (Math.random() - .5) * .6,
+                   vy: -.4 - Math.random() * .6, life: 0, max: 70, r: 2 + Math.random() * 2.5, c: COL[Math.floor(Math.random() * 4)], star: Math.random() < .6 });
+    }
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i];
+      if (++p.life > p.max) { parts.splice(i, 1); continue; }
+      p.x += p.vx; p.y += p.vy; p.vx *= .95; p.vy = p.vy * .95 - .02;
+      const k = p.life / p.max;
+      g.globalAlpha = Math.sin(Math.PI * k); g.fillStyle = g.shadowColor = p.c; g.shadowBlur = 12;
+      if (p.star) star(p.x, p.y, p.r * (1 - k * .4)); else { g.beginPath(); g.arc(p.x, p.y, p.r * (1 - k), 0, 7); g.fill(); }
+    }
+    g.globalAlpha = 1;
+    if (parts.length || statusOn) requestAnimationFrame(fxTick); else fxRunning = false;
+  }
+  function burst(x, y, n, speed) {
+    if (!stage) return;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * 7, v = speed * (.4 + Math.random());
+      parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0, max: 40 + Math.random() * 30, r: 2.5 + Math.random() * 4,
+                   c: COL[Math.floor(Math.random() * COL.length)], star: Math.random() < .5 });
+    }
+    if (!fxRunning) { fxRunning = true; requestAnimationFrame(fxTick); }
   }
 
   window.avatar = {
@@ -343,14 +587,33 @@
       if (window.innerWidth >= mw) window.dispatchEvent(new Event("resize"));
     },
     setActive(on) { on ? app.ticker.start() : app.ticker.stop(); if (on) fit(); },
+    layout(o) {  // avatar.py, before she appears: stage (full monitor) or compact (corner window)
+      stage = !!o.stage; glowEnabled = o.glow !== false; home = o.home || null;
+      fixed = o.fixed !== false; margins = o.margins || [40, 0];
+      box = { w: o.w, h: o.h }; monitor = { w: o.mw || 0, h: o.mh || 0 };
+      document.body.classList.toggle("stage", stage);
+      frame = stage ? { x: 0, y: 0, w: o.w, h: o.h } : null;
+      hideStatus(); glow.className = ""; bubble.classList.remove("on");
+      placeUi();
+    },
+    arrive() { if (model) arrive(); else pendingArrive = true; },
+    resize(w, h) {  // stage: the mouse wheel scaled her; keep her feet where they were
+      if (!stage || !frame) return;
+      frame.x += (frame.w - w) / 2; frame.y += frame.h - h; frame.w = w; frame.h = h;
+      frame.x = Math.max(0, Math.min(innerWidth - w, frame.x)); frame.y = Math.max(0, Math.min(innerHeight - h, frame.y));
+      box = { w, h }; fit(); placeUi();
+    },
     command(msg) {
       switch (msg.cmd) {
         case "state":
           stateDot.className = msg.state === "idle" || msg.state === "speaking" ? "" : msg.state;
+          setGlow(msg.state);
+          if (msg.state === "idle" || msg.state === "listening") hideStatus();
           break;
         case "speak":
           env = msg.env || []; envFps = msg.fps || 30; envStart = performance.now();
           if (!bubble.classList.contains("on")) gesture();
+          hideStatus();
           say(msg.text);
           break;
         case "emotion":  // speech emotions linger a little after she finishes; state faces last until changed
@@ -358,6 +621,8 @@
           if (msg.name === "happy" && Math.random() < 0.5) gesture();
           break;
         case "status":  // what she's doing right now; stays until she speaks
+          if (stage) { showStatus(msg.tool, msg.text, msg.detail); break; }
+          if (!msg.text) break;
           bubble.textContent = msg.text;
           bubble.classList.add("on");
           clearTimeout(bubbleTimer);
@@ -368,6 +633,8 @@
           break;
         case "error":
           setEmotion("worried", 6000);
+          hideStatus();
+          setGlow("error");
           say("⚠ " + msg.text);
           break;
       }
