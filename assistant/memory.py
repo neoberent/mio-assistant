@@ -2,12 +2,40 @@
 from __future__ import annotations
 
 import datetime as dt
+import difflib
 import json
 import re
 
 from .config import MEMORY_FILE, USAGE_FILE
 
-MAX_FACTS = 30
+MAX_FACTS = 200
+FACT_CHARS = 1200  # facts put into one request; the rest wait until a request is about them
+SECRET = re.compile(r"password|passwort|token|secret|api.?key|pin code|\bpin\b|credit card|iban", re.I)
+STOP = set("the a an and or of to in on at for with is are was be my me i i'm im you your it that this "
+           "what who do does did have has like likes".split())
+
+
+def _ids(text: str) -> set[str]:
+    """Names and numbers in a fact (what makes two similar-looking facts different)."""
+    return {w.lower() for w in re.findall(r"\b(?:[A-Z][\w'-]+|\d+\w*)", text)} - {"the", "user", "user's"}
+
+
+def spoken(fact: str) -> str:
+    """'The user plays Roblox with Chill' → 'you play Roblox with Chill' (facts are kept third-person)."""
+    f = re.sub(r"\bthe user's\b", "your", fact, flags=re.I)
+    f = re.sub(r"\bthe user (is|was|has)\b", lambda m: "you " + {"is": "are", "was": "were", "has": "have"}[
+        m[1].lower()], f, flags=re.I)
+    def base(m: re.Match) -> str:
+        v = m[1]
+        v = v[:-3] + "y" if v.endswith("ies") else v[:-2] if re.search(r"(ch|sh|ss|x|z|o)es$", v) else v[:-1]
+        return "you " + v
+    f = re.sub(r"\bthe user (\w+s)\b", base, f, flags=re.I)
+    f = re.sub(r"\(said on ([^)]+)\)", r"(you told me on \1)", f)
+    return re.sub(r"\bthe user\b", "you", f, flags=re.I)
+
+
+def _keys(text: str) -> set[str]:
+    return {w[:5] for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in STOP and len(w) > 1}
 
 
 class Memory:
@@ -60,11 +88,50 @@ class Memory:
     def active(self) -> bool:
         return bool(self.turns)
 
-    def remember(self, fact: str):
-        fact = fact.strip()
-        if fact and fact not in self.facts:
-            self.facts = (self.facts + [fact])[-MAX_FACTS:]
-            self.save()
+    def remember(self, fact: str) -> bool:
+        """Keep a fact; a near-copy of an old one replaces it (newer wording wins). Secrets are never kept."""
+        fact = re.sub(r"\s+", " ", fact).strip().rstrip(".")
+        if not fact or SECRET.search(fact) or len(fact) > 200:
+            return False
+        low = fact.lower()
+        ids = _ids(fact)  # "Alex is the user's friend" ≠ "Chill is the user's friend": names/numbers must match
+        same = [f for f in self.facts if _ids(f) == ids
+                and difflib.SequenceMatcher(None, f.lower(), low).ratio() > 0.85]
+        if same and fact in self.facts:
+            return False
+        self.facts = [f for f in self.facts if f not in same] + [fact]
+        self.facts = self.facts[-MAX_FACTS:]
+        self.save()
+        return True
+
+    def forget(self, about: str) -> list[str]:
+        """Drop the facts that match `about` best ("forget that I like lofi") → what was dropped."""
+        want = _keys(about)
+        if not want:
+            return []
+        scored = [(len(want & _keys(f)) / len(want), f) for f in self.facts]
+        best = max((sc for sc, _ in scored), default=0)
+        if best < 0.5:
+            return []
+        gone = [f for sc, f in scored if sc == best]
+        self.facts = [f for f in self.facts if f not in gone]
+        self.save()
+        return gone
+
+    def relevant(self, query: str) -> list[str]:
+        """The facts for this request: all of them while they fit, else the ones sharing words with it,
+        then the newest."""
+        if sum(len(f) + 2 for f in self.facts) <= FACT_CHARS:
+            return list(self.facts)
+        want = _keys(query)
+        order = sorted(range(len(self.facts)), key=lambda i: (len(want & _keys(self.facts[i])), i), reverse=True)
+        out, size = [], 0
+        for i in order:
+            if size + len(self.facts[i]) > FACT_CHARS:
+                break
+            out.append(i)
+            size += len(self.facts[i]) + 2
+        return [self.facts[i] for i in sorted(out)]
 
     def clear(self):
         self.end_session()
@@ -79,9 +146,10 @@ class Memory:
             out = out[2:]
         return out
 
-    def facts_line(self) -> str:
+    def facts_line(self, query: str = "") -> str:
         """Persistent facts + what tools found earlier this session (links etc.), for the system prompt."""
-        lines = ["Known about the user: " + "; ".join(self.facts)] if self.facts else []
+        facts = self.relevant(query)
+        lines = ["Known about the user: " + "; ".join(facts)] if facts else []
         notes = [n for t in self.turns for n in t["notes"]]
         while notes and sum(map(len, notes)) > self.CONTEXT_CHARS // 2:
             notes.pop(0)
@@ -89,7 +157,7 @@ class Memory:
             lines.append("Found earlier in this conversation (use these for follow-ups):\n- " + "\n- ".join(notes))
         return "\n".join(lines)
 
-    def context_block(self) -> str:
+    def context_block(self, query: str = "") -> str:
         """Facts + this session's turns with tool notes, newest kept if it gets too long."""
         blocks = []
         for t in self.turns:
@@ -99,7 +167,8 @@ class Memory:
             blocks.append(b + f"\nYou: {t['assistant']}")
         while blocks and sum(map(len, blocks)) > self.CONTEXT_CHARS:
             blocks.pop(0)
-        head = ["Known about the user: " + "; ".join(self.facts)] if self.facts else []
+        facts = self.relevant(query)
+        head = ["Known about the user: " + "; ".join(facts)] if facts else []
         if blocks:
             head.append("Conversation so far (this session):")
         return "\n".join(head + blocks)

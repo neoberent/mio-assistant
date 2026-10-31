@@ -11,6 +11,7 @@ import datetime as dt
 import json
 import logging
 import os
+import sys
 import re
 import signal
 import time
@@ -111,6 +112,17 @@ def faithful(steps: list[str], text: str) -> list[str] | None:
 
 
 # teaching a routine: "when I say gaming time, open discord, launch roblox and turn on do not disturb"
+ABOUT_ME = re.compile(r"(hey mio,? )?what (do|did) you (know|remember) about me|what have you (learned|"
+                      r"learnt) about me|tell me what you know about me")
+FORGET_ALL = re.compile(r"(hey mio,? )?forget (everything|all) (you know |you learned |)about me")
+FORGET_FACT = re.compile(r"(?:hey mio,? )?(?:please )?forget (?:that |about )(?:i |my |me )?(.+)")
+RELATIVE_TIME = re.compile(r"(?<!every )\b(today|tomorrow|tonight|yesterday|next|this (week|weekend|month|year)|"
+                           r"weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b(?!s)", re.I)
+NOT_NAMES = {"The", "User", "They", "He", "She", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+             "Sunday", "January", "February", "March", "April", "May", "June", "July", "August", "September",
+             "October", "November", "December"}
+PERSONAL = re.compile(r"\b(i'?m|i am|my|i (really )?(like|love|hate|play|live|work|have|prefer|usually)|"
+                      r"call me|friend|brother|sister|mom|dad|girlfriend|boyfriend|birthday|favou?rite)\b", re.I)
 TEACH = re.compile(r"^\W*(?:hey mio,? )?(?:when(?:ever)? i say|every time i say|if i say|make a routine called|"
                    r"create a routine called|new routine called)\s+[\"'“]?(.+?)[\"'”]?\s*[,:]\s*(?:(?:you should|please|"
                    r"then|i want you to|that means|it should|do|to)\s+)?(.+)$", re.I)
@@ -172,6 +184,7 @@ class Assistant:
             self.learning.lexicon.set_domain(EXAMPLES + " ".join(f"{t.description} {json.dumps(t.params)}"
                                                                  for t in self.tools.tools.values()))
         self._trace: list[dict] = []  # tool calls of the request in progress (local or Claude)
+        self.last_src = "none"
         self._hints: list[str] = []   # unsure name fixes for the request in progress
         self._asked: dict | None = None  # she asked what they meant: {"text": the request, "t": when}
         self._no_asking = False          # …and this is their answer: if it fails again, Claude gets it
@@ -182,6 +195,7 @@ class Assistant:
         self.tools.knowledge = Knowledge(self.cfg.knowledge.get("paths", []))
         self.tools.launchers = self.cfg.games.get("launchers", {})
         self.tools.vision = self.cfg.brain
+        self.tools.stt = self.stt
         self.tools.run_steps = self._run_steps
         from .timers import Timers
 
@@ -262,6 +276,7 @@ class Assistant:
     def end_session(self):
         if self.memory.active():
             log.info("session ended, conversation forgotten")
+            asyncio.get_running_loop().create_task(self._learn_about_user(list(self.memory.turns)))
         self.memory.end_session()
 
     async def toggle_pin(self):
@@ -414,9 +429,13 @@ class Assistant:
                 text, self._hints = self.learning.correct(text, voice)
             await self.set_state("thinking")
             await self.show()  # stay visible while working, also for typed requests
+            started = time.time()
             reply = await self.respond(text)
             self._hints = []
             log.info("reply: %r", reply)
+            from . import review
+
+            review.log_request(text, reply, self.last_src, time.time() - started, voice, self._trace)
             if reply:
                 await self.say(reply)
         except Exception as e:
@@ -640,6 +659,70 @@ class Assistant:
             return r
         return f"Got it! When you say {name}, I'll " + ", then ".join(s[0].lower() + s[1:] for s in steps) + "."
 
+    def _about_me(self, text: str) -> str:
+        """"What do you know about me?" / "forget that I like lofi" / "forget everything about me" (0 tokens)."""
+        t = text.lower().strip(" .!?")
+        if ABOUT_ME.fullmatch(t):
+            facts = self.memory.facts
+            if not facts:
+                return "Not much yet! Tell me things like who your friends are or what you like, and I'll remember."
+            shown = facts[-12:]
+            more = f" And {len(facts) - len(shown)} older things." if len(facts) > len(shown) else ""
+            from .memory import spoken
+
+            return "Here's what I know: " + "; ".join(spoken(f) for f in shown) + "." + more
+        if FORGET_ALL.fullmatch(t):
+            n = len(self.memory.facts)
+            self.memory.facts = []
+            self.memory.save()
+            return f"Okay, I forgot all {n} things I knew about you." if n else "I didn't know anything yet."
+        if m := FORGET_FACT.fullmatch(t):
+            gone = self.memory.forget(m[1])
+            if gone:
+                log.info("forgot facts: %s", gone)
+                from .memory import spoken
+
+            return "Okay, forgotten: " + "; ".join(spoken(f) for f in gone) + "."
+            return ""  # not a fact: "forget that timer" etc. go on as usual
+        return ""
+
+    async def _learn_about_user(self, turns: list[dict]):
+        """After a conversation: keep lasting facts the user told about themselves (one quick local call,
+        only when they said something personal; never during games)."""
+        said = [t["user"] for t in turns if PERSONAL.search(t["user"]) and not ABOUT_ME.fullmatch(
+            t["user"].lower().strip(" .!?"))]
+        if not said or self.gaming or not self.cfg.brain.get("learn_facts", True):
+            return
+        try:
+            if not await self.local.available():
+                return
+            out = await self.local._structured(
+                "From what the user said to their voice "
+                "assistant, list lasting facts about the USER worth remembering for weeks: their friends and family "
+                "(with names), likes and dislikes, games and music they play, habits, upcoming plans (keep the "
+                "user's own time words like 'next weekend'), where they live or work. Write each as a short third-person fact "
+                "('Alex is the user's friend', 'The user likes lofi music'). Only what the user clearly said about "
+                "themselves; nothing about the assistant, no one-off commands ('play X', 'open Y', 'what's the "
+                "weather'), no passwords or codes. If there is nothing like that, return an empty list.",
+                "\n".join(f"- {x}" for x in said[-10:]),
+                {"type": "object", "properties": {"facts": {"type": "array", "items": {"type": "string"}}},
+                 "required": ["facts"]}, 200)
+        except Exception as e:  # noqa: BLE001 - learning must never break anything
+            log.debug("fact learning failed: %s", e)
+            return
+        words = set(re.findall(r"\w+", " ".join(said).lower()))
+        for fact in out.get("facts", [])[:5]:
+            if not isinstance(fact, str):
+                continue
+            names = re.findall(r"\b[A-Z][a-z]+\b", fact)  # names must be the user's own, not made up
+            if any(n.lower() not in words for n in names if n not in NOT_NAMES):
+                log.info("fact dropped (invented name): %r", fact)
+                continue
+            if RELATIVE_TIME.search(fact):  # a small model's date maths is unreliable: stamp the day instead
+                fact = fact.rstrip(". ") + dt.date.today().strftime(" (said on %d %b %Y)")
+            if self.memory.remember(fact):
+                log.info("learned about the user: %r", fact)
+
     async def _right_now(self) -> str:
         """The 'Right now — focused window…; Discord chat open…' line; people in the open Discord chat are learned."""
         from . import awareness
@@ -663,6 +746,9 @@ class Assistant:
         """→ (reply, who answered: fast | local | replay | ask | claude | steps | routine | none)"""
         from .actions import find_routine
 
+        if not nested and (reply := self._about_me(text)):
+            self.memory.add(text, reply)
+            return reply, "fast"
         if not nested and (m := TEACH.match(text)):
             reply = await self._teach_routine(m[1].strip(), m[2].strip())
             self.memory.add(text, reply)
@@ -716,7 +802,7 @@ class Assistant:
 
         force_claude = re.match(r"^\s*(hey )?(ask|use) claude\b[,:]?\s*", text, re.I)
         query = text[force_claude.end():] if force_claude else text
-        context = self.memory.context_block()
+        context = self.memory.context_block(query)
         reply, src = None, "none"
         hints = ("Speech recognition note: " + "; ".join(self._hints) + ". Act on what they probably said.") \
             if self._hints else ""
@@ -725,7 +811,7 @@ class Assistant:
         if not force_claude and self.cfg.brain.get("local_enabled", True) and await self.local.available():
             learned, replay = await self.learning.learned(query) if self.learning else ([], None)
             try:
-                facts = "\n".join(x for x in (self.memory.facts_line(), now, hints) if x)
+                facts = "\n".join(x for x in (self.memory.facts_line(query), now, hints) if x)
                 if not replay and not self._no_asking and (q := self.learning.choice_question() if self.learning
                                                            else ""):
                     reply, src = q, "ask"  # two learned ways that would both *do* something: ask, don't guess
@@ -959,6 +1045,9 @@ class Assistant:
         if self.dreamer:
             asyncio.create_task(self.dreamer.run())
         asyncio.create_task(self.timers.run())
+        from . import review
+
+        asyncio.create_task(review.nightly())
         from . import riff
 
         riff.bridge = riff.Bridge()
@@ -987,12 +1076,25 @@ class Assistant:
         if self.wake:
             self.wake.stop()
         await self.clipper.stop()
+        if self.wake and getattr(self.wake, "_thread", None):
+            await asyncio.to_thread(self.wake._thread.join, 3)
+        try:
+            self.learning.lexicon.save()
+        except Exception:
+            pass
 
 
 def main():
     logging.basicConfig(level=os.environ.get("ASSISTANT_LOG", "INFO"),
                         format="%(levelname)s %(name)s: %(message)s")
     asyncio.run(Assistant().run())
+    # Skip interpreter teardown: PortAudio/CTranslate2 threads still inside native code crashed it on
+    # every stop (SIGSEGV in snd_pcm_avail_update, SIGABRT taking the GIL in Whisper). State is
+    # already written to disk as it changes, so a hard exit loses nothing.
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":

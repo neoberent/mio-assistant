@@ -94,3 +94,15 @@ class STT:
 
     async def transcribe(self, audio: np.ndarray) -> str:
         return await asyncio.to_thread(self._transcribe, audio, True, True)
+
+    def _listen(self, audio: np.ndarray) -> tuple[str, str]:
+        """Longer audio in any language (videos without subtitles): VAD on, greedy, no command prompt."""
+        if self._model is None:
+            self.load()
+        segments, info = self._model.transcribe(audio, language=None, beam_size=1, vad_filter=True,
+                                                condition_on_previous_text=False, without_timestamps=True)
+        return " ".join(s.text.strip() for s in segments).strip(), info.language
+
+    async def listen(self, audio: np.ndarray) -> tuple[str, str]:
+        """(text, language) of a longer clip."""
+        return await asyncio.to_thread(self._listen, audio)

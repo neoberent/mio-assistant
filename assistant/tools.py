@@ -235,6 +235,7 @@ class ToolBox:
         self.launchers: dict[str, list[str]] = {}  # [games] in the config
         self.gaming = False  # set by the daemon; some tools stay off the GPU during games
         self.said = ""  # the user's words for the current request (set by the daemon; "" = replay/routine)
+        self.stt = None  # assistant.stt.STT, set by the daemon (listens to videos without subtitles)
         self.vision: dict = {}  # [brain] config, for see_screen's local vision model
         self.run_steps: Callable[[list[str]], Awaitable[str]] | None = None  # routines, set by the daemon
         self.confirm = confirm
@@ -242,6 +243,30 @@ class ToolBox:
         self.roots = [Path(os.path.expanduser(r)).resolve() for r in sec.get("file_roots", [])]
         self.tools: dict[str, Tool] = {}
         self._register()
+
+    async def _listen_video(self, info: dict) -> str:
+        """No subtitles: listen to up to 4 minutes of the video with Whisper (local, ~5 s). Starts a bit
+        before where the user is watching, so "what is this about" fits the part on screen."""
+        from . import browser
+
+        url = info.get("url", "")
+        if not url:
+            return ""
+        try:  # "12:34" / "1:02:03" → seconds
+            at = sum(int(x) * 60 ** i for i, x in enumerate(reversed(str(info.get("time") or "0").split(":"))))
+        except ValueError:
+            at = 0
+        start = max(0, at - 60)
+        log.info("no subtitles, listening to %s from %ds", url, start)
+        audio = await browser.audio_clip(url, start, 240)
+        if audio is None:
+            return ""
+        text, lang = await self.stt.listen(audio)
+        if not text:
+            return "(no subtitles, and no speech heard in it)"
+        where = f"from {int(start // 60)}:{int(start % 60):02d}" if start else "from the start"
+        note = f" (spoken in '{lang}'; answer in English)" if lang and lang != "en" else ""
+        return f"What is said in it, {where}, heard by you{note}: " + text[:6000]
 
     # ── gate ────────────────────────────────────────────────────────────────
     def _audit(self, name: str, args: dict, decision: str, result: str = ""):
@@ -1176,7 +1201,10 @@ class ToolBox:
                 info = await bcall("video", op="info")
                 text = await browser.transcript(info.get("url", ""))
                 head = f"Video: {info.get('title')} by {info.get('channel')} ({info.get('duration')})"
-                return head + ("\nTranscript: " + text if text else "\n(no subtitles available)")
+                if text:
+                    return head + "\nTranscript: " + text
+                heard = await self._listen_video(info) if self.stt and not self.gaming else ""
+                return head + ("\n" + heard if heard else "\n(no subtitles available)")
             r = await bcall("video", op=action, value=value)
             if r.get("error"):
                 return r["error"]

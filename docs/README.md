@@ -88,7 +88,7 @@ Free lookups (no API keys, handled by the local model, zero Claude tokens):
 | "weather tomorrow?" | `weather`: wttr.in (set `[lookup] weather_location`, empty = by IP) |
 | "is my PC healthy?" | `system_health`: failed units, boot errors, temps, disks, memory |
 | "is this safe to install?" (with `paru -S …` typed/pasted in kitty) | `check_install`: reads the focused terminal, checks repo vs AUR, votes/age/maintainer, scans PKGBUILD + .install for red flags |
-| "what's new in …?", any current question | `web_research`: DuckDuckGo → top 4 sites → main text (trafilatura) → ~900 words of extracts; local model answers, Claude gets only the extracts for harder questions (~0.2 ¢) |
+| "what's new in …?", any current question | `web_research`: search engines raced in parallel → top sites + Wikipedia's intro → main text (trafilatura) → extracts (sites that refused with 403/429 are passed over for a week, not worked around); local model answers, Claude gets only the extracts for harder questions (~0.2 ¢) |
 | "read the link I copied" | `read_clipboard_link` (only when you mention the clipboard) / `read_link` |
 | "what's on my screen?", "explain this page" | `read_screen`: niri screenshot of the focused window → tesseract OCR (kitty: exact text); clipboard is restored afterwards |
 | "look at this chart/picture" | `look_at_screen`: Claude only, ~1280 px image (~0.1–0.3 ¢) |
@@ -215,6 +215,17 @@ All of this runs on the CPU (or, for dreaming, only while you're away), so games
   switches if it does better (a dream of another model is never used). Install it with
   `scripts/install_dream.sh [model]` (~25 GB for qwen3.5:9b). Turn it off with `[learning] train = false`;
   `use_trained = false` goes back to the plain model.
+- **What she knows about you** (`assistant/memory.py`). When a conversation ends and you told her something
+  about yourself ("my friend Chill and I play Roblox every Friday", "I hate country music"), one quick local
+  call keeps it as a fact ("Chill is the user's friend"). Names must be words you said (invented ones are
+  dropped), passwords/codes are never kept, near-copies replace the older wording, and plans with "next
+  weekend" get the day you said it stamped on. Up to 200 facts; each request gets the ones that fit it.
+  "What do you know about me?", "forget that I like lofi", "forget everything about me" (no model call).
+  Off with `[brain] learn_facts = false`; facts live in `~/.local/state/assistant/memory.json`.
+- **Her report card** (`assistant/review.py`). Every request is logged locally for 30 days
+  (`requests.jsonl`), and from 4 am she reviews the day before into `reviews/YYYY-MM-DD.md`: what was slow,
+  where she got lost, needed Claude, asked back, a tool failed, or you had to repeat or correct her.
+  `assistant review [DAYS]` shows it any time. Plain rules, no model.
 - `assistant learned` shows what she has learned and how far she is from the next dream; `assistant dream
   --dry` runs a test dream now. Data is in `~/.local/state/assistant/{skills,lexicon,dream}.json`. Delete those
   files to make her forget everything she learned.
@@ -433,7 +444,9 @@ brave://extensions → Developer mode → Load unpacked → `browser/extension`,
 fixed (`hmjgoilonpblpoamhakkijgoedphnaim`) by the `key` in its manifest, so the host only accepts it.
 
 - **Video**: "skip the ad", "2x speed" / "normal speed", "skip ahead 2 minutes", "go back 30 seconds",
-  "next video", "what's this video about?" (transcript via `yt-dlp`, summarized by the local model).
+  "next video", "what's this video about?" (transcript via `yt-dlp`, summarized by the local model; a video without
+  subtitles is listened to instead: ~4 minutes of its audio around where you are, through Whisper, any
+  language, ~10 s; not during games).
 - **Pages**: "summarize this page", "what does this article say about …" (real page text, not OCR).
 - **Tabs**: "switch to my Discord tab", "close all YouTube tabs" (more than 3 asks first), "close this tab",
   "reopen the last tab".

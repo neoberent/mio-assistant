@@ -12,6 +12,8 @@
   assistant escalations    what Mio couldn't do locally and sent to Claude (last 7 days)
   assistant learned        what Mio has learned: requests that worked, names she knows, word fixes
   assistant dream [--dry]  train her local model on her wins now (normally automatic while you're away)
+  assistant review [DAYS]  what went badly today (or over the last DAYS days); nightly ones are in
+                           ~/.local/state/assistant/reviews/
 """
 import json
 import socket
@@ -26,6 +28,11 @@ def main():
         print(__doc__.strip())
         return
     cmd, rest = args[0], " ".join(args[1:])
+    if cmd == "review":  # reads her request log directly, works without the daemon
+        from assistant import review
+
+        print(review.report(int(rest) if rest.isdigit() else 1))
+        return
     req = {"cmd": cmd}
     if cmd in ("say", "ask"):
         req["text"] = rest

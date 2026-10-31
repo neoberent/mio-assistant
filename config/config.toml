@@ -30,6 +30,7 @@ volume = 1.0
 [brain]
 # Order: fast-path regex (no LLM) -> local Ollama -> Claude (only when needed)
 local_enabled = true
+learn_facts = true            # keep lasting facts you tell her about yourself (local, after a conversation)
 ollama_url = "http://127.0.0.1:11434"
 ollama_model = "qwen3.5:9b"
 ollama_keep_alive = "5m"      # unload from VRAM after idle

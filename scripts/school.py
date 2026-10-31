@@ -60,6 +60,10 @@ async def main():
         a.avatar.send = nop
         a.memory.facts = []
         a.memory.save = lambda: None
+
+        async def no_facts(*_a, **_k):  # curriculum requests aren't things the user said about themselves
+            return None
+        a._learn_about_user = no_facts
         a.learning.lexicon.hear = lambda *_a, **_k: None  # her vocabulary is the user's words, not the curriculum's
         a.learning.lexicon.from_tool = lambda *_a, **_k: None  # fake results ("… by Phonk") aren't real names
         a._log_escalation = lambda *_a: None  # her real escalation log is for real use
