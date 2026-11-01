@@ -174,6 +174,8 @@ class Assistant:
         self.tools = ToolBox(self.cfg.security, self.confirm, self.memory.remember, self.cfg.lookup)
         self.tools.on_tool = self._tool_status
         self.tools.on_result = self._on_result
+        from .virusscan import Scanner
+        self.tools.scanner = Scanner(self.cfg.scan, on_done=self._scan_done, paused=lambda: self.gaming)
         self.learning = None
         if self.cfg.learning.get("enabled", True):
             from .learning import Learning
@@ -957,6 +959,16 @@ class Assistant:
         await self.set_state("speaking")
         await self.player.play(*chime(True))
         await self.player.play(*chime(True))
+        await self._say_then_idle(text)
+
+    async def _scan_done(self, text: str):
+        """The virus scan finished: tell the user, but not over a conversation or during a game."""
+        log.info("virus scan done: %s", text)
+        asyncio.create_task(sh("notify-send", "-a", "Assistant", "-u", "normal", "Mio: virus scan done",
+                               text if len(text) < 300 else text[:297] + "..."))
+        while self.state != "idle" or self.gaming:
+            await asyncio.sleep(2)
+        await self.set_state("speaking")
         await self._say_then_idle(text)
 
     def _on_wake(self):

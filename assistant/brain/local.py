@@ -53,6 +53,8 @@ CATEGORIES: dict[str, tuple[str, list[str]]] = {
     "screen": (r"\b(screen|this|window|terminal|error|clipboard|copied|pasted|reading|says|see|look|picture|"
                r"image|showing)\b",
                ["screen", "clipboard", "read_clipboard_link"]),
+    "security": (r"\b(virus(es)?|malware|trojans?|spyware|rootkits?|infected|hacked|antivirus|scan|scanning|"
+                 r"quarantine|quarantined)\b", ["virus_scan", "quarantine"]),
     "packages": (r"\b(package|install|update|upgrade|uninstall|remove|aur|paru|yay|pacman|safe|trust|pkgbuild|"
                  r"arch news|cachyos|kernel|driver|outdated|up to date)\b",
                  ["package_info", "check_install", "system_updates", "install_updates", "install_packages",
@@ -122,6 +124,7 @@ EXAMPLES = """Examples of good tool use:
 - "what's this video about?" → browser_video(action="about"), then summarize the transcript in 2-3 sentences
 - "find that recipe I looked at yesterday" → browser_history(query="recipe", days=2)
 - "remind me to stretch in 45 minutes" → timer(action="set", minutes=45, label="stretch")
+- "check my pc for viruses" / "is my pc hacked?" → virus_scan(action="start"); "what did the scan find?" → virus_scan(action="results"); "remove number 2" → quarantine(items="2")
 - "do I need updates?" / "check my pc for updates" → system_updates, then say how many and the notable ones
 - "play lofi music on youtube" / "open Asian maps from Rohat on YouTube" → youtube_play(query="Asian maps Rohat")
 - "search cat videos on youtube and open the first one" → youtube_play(query="cat videos")

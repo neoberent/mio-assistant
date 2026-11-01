@@ -325,6 +325,57 @@ All of this runs on the CPU (or, for dreaming, only while you're away), so games
   hides (or after `session_timeout_s` untouched) it's all forgotten, so context never grows.
   Only facts you ask her to remember are kept (`~/.local/state/assistant/memory.json`).
 
+## Virus scan (`assistant/virusscan.py`, `assistant/scan_checks.py`)
+
+"Check my PC for viruses", "does my PC have a virus?", "is my computer hacked?" start a deep scan in the
+background (`assistant scan` from a terminal). She announces the result when she's done; during a game the scan
+pauses and she waits until you're out. Five independent checks, merged per file:
+
+1. **ClamAV signatures** on every file in home, `/tmp`, `/var/tmp`, `/dev/shm`, `/opt`, `/usr/local`, `/etc`, `/srv`
+   (inside archives too). The `clamd` engine is started just for the scan, as you, at idle CPU/disk priority
+   (~1 GB RAM while scanning, nothing afterwards). Signatures update daily via `clamav-freshclam-once.timer`.
+2. **System integrity**: `pacman -Qkk` over every package. A changed *program or library* is dangerous (trojaned
+   `ls`/`sshd`); changed settings and caches are normal and only noted. Programs in `/usr/bin` no package
+   installed are flagged.
+3. **What starts on its own / hijacks things**: systemd units and their drop-in overrides (a bad override on a real
+   service only gets the override removed — the service is never disabled), autostart entries, cron (incl.
+   `@reboot`), shell startup files, niri `spawn-at-startup`, app-menu entries (a fake "Brave" shortcut),
+   `LD_PRELOAD` in `/etc/ld.so.preload` / `environment.d` / `/etc/environment`, a fake `sudo`/`ssh`/`passwd` in a
+   folder that comes before `/usr/bin` in PATH (it would see your password), kernel modules outside packages,
+   setuid programs no package installed, SSH keys, and Discord's core module (compared with the known-good
+   one-liner; token stealers append code there — "yes" repairs it, client mods like BetterDiscord/Vencord are only
+   noted).
+4. **Running programs**: programs running from temp folders, fake kernel-thread names, programs that deleted their
+   own file (self-updating apps like Discord are recognised), hidden processes.
+5. **YARA**: the [YARA Forge](https://github.com/YARAHQ/yara-forge) *core* rule set (5,000+ curated, low
+   false-positive rules from Elastic, ReversingLabs, signature-base …), refreshed weekly into
+   `~/.local/share/assistant/yara/`, on programs and scripts in risky places and Windows programs installed in
+   Wine/Proton. (The bigger *extended* set was tested and flagged Valve's genuine `steam.exe`, so it isn't used.)
+
+The report also lists browser extensions (outside-the-store ones noted), which unknown programs listen on the
+network, what ClamAV couldn't fully check (archives over its limits, password-protected zips — instead of
+skipping them silently) and how long each step took. Package files whose checksum matched are not re-scanned
+(they are byte-for-byte the official files); `pacman -Qkk` runs in 6 parallel groups (~8 s). Last 30 reports kept.
+
+**Quick scan** ("quick virus check", `assistant scan quick`, ~2 min instead of ~25): all the checks that don't read
+every file (startup, running programs, package checksums) plus ClamAV/YARA only where malware usually hides:
+Downloads, Desktop, `~/.local/bin`, autostart/systemd folders, temp folders, `/usr/local`, hidden folders in home no
+normal app uses, browser extension folders, Discord's core module (token stealers patch it) and Wine Startup
+folders; files over 30 MB are skipped.
+
+Being unknown, unsigned or oddly named is **never** a finding by itself. Programs not from a package (Orbit,
+AppImages, Wine apps) are listed in the report as "no signs of harm".
+
+Removing things: she asks "Should I put it in quarantine?" — "yes" moves it to
+`~/.local/share/assistant/quarantine/` (locked, 0400, with a record); a startup entry's program goes with it and
+user services are disabled first. Nothing is deleted. Only your own files in home/temp folders can be
+quarantined — never package files (she offers to reinstall the package instead), never Mio's repo or `~/.ssh`.
+"Restore it" / `assistant scan restore NAME` puts it back. "It's fine" trusts it (by file hash: if it changes she
+warns again). Reports: `~/.local/state/assistant/scans/` (`assistant scan report`).
+
+Needs `sudo pacman -S clamav yara && sudo freshclam && sudo systemctl enable --now clamav-freshclam-once.timer`;
+without ClamAV she offers to install it, or scans everything else. Settings: `[scan]` in the config.
+
 ## Security
 
 - Every action is logged to `~/.local/state/assistant/audit.log`.

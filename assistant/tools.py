@@ -238,6 +238,7 @@ class ToolBox:
         self.stt = None  # assistant.stt.STT, set by the daemon (listens to videos without subtitles)
         self.vision: dict = {}  # [brain] config, for see_screen's local vision model
         self.run_steps: Callable[[list[str]], Awaitable[str]] | None = None  # routines, set by the daemon
+        self.scanner = None  # assistant.virusscan.Scanner, set by the daemon
         self.confirm = confirm
         self.remember_fn = remember
         self.roots = [Path(os.path.expanduser(r)).resolve() for r in sec.get("file_roots", [])]
@@ -373,6 +374,13 @@ class ToolBox:
                 return f"Move the file {short(path)} to the trash"
             if name == "move_file":
                 return f"Move {short(args['src'])} to {short(args['dst'])}"
+            if name == "quarantine":
+                from .virusscan import latest, offered
+
+                ids = re.findall(r"\d+", args.get("items") or "")
+                fs = offered(latest() or {"findings": []}, ids or None)
+                names = ", ".join(short(f["path"]) for f in fs[:4]) + (f" and {len(fs) - 4} more" if len(fs) > 4 else "")
+                return f"Put {len(fs)} thing{'s' if len(fs) != 1 else ''} in quarantine (can be restored): {names}"
         except (OSError, KeyError):
             pass
         return args.get("command") or f"{name} {json.dumps(args, ensure_ascii=False)}"
@@ -383,7 +391,12 @@ class ToolBox:
             raise PermissionError(f"{path} is outside the allowed folders ({', '.join(map(str, self.roots))})")
         return path
 
-    async def call(self, name: str, args: dict) -> str:
+    async def call_confirmed(self, name: str, args: dict) -> str:
+        """The user just said yes to her exact question about this (asked by code, not the model): no second
+        "Should I do this?". The deny rules still apply."""
+        return await self.call(name, args, confirmed=True)
+
+    async def call(self, name: str, args: dict, confirmed: bool = False) -> str:
         tool = self.tools.get(name)
         if tool is None:
             return f"error: unknown tool {name}"
@@ -411,6 +424,8 @@ class ToolBox:
             what = args.get("path") or args.get("src")
             return (f"refused: {what} is a protected folder and is never deleted or moved as a whole. To delete what's "
                     f"in it, use trash(path=\"{what}\", inside=true); or name the files.")
+        if decision == "confirm" and confirmed:
+            decision = "confirmed (answered her question)"
         if decision == "confirm":
             summary = self._describe(name, args)
             ok = await self.confirm(summary)
@@ -1357,6 +1372,8 @@ class ToolBox:
 
         from .actions import register
         register(self)
+        from .virusscan import register as register_scan
+        register_scan(self)
 
         @self._add("remember","Save a short long-term fact about the user (preferences, names, habits).",
                    {"fact": S}, ["fact"])

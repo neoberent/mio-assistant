@@ -317,6 +317,10 @@ async def handle(text: str, tools: ToolBox, usage=None, last_reply: str = "") ->
     if re.fullmatch(r"(thank you|thanks|thank you so much|thanks a lot)", t):
         return Result(random.choice(["You're welcome!", "Anytime!", "Happy to help!"]))
 
+    from .scanpath import handle as scan_handle  # "check my pc for viruses", and yes/no to her scan questions
+    if (r := await scan_handle(t, tools)) is not None:
+        return r
+
     if _is_update_check(t):
         from ..briefing import updates_line
 

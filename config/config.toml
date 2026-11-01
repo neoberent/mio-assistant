@@ -184,3 +184,14 @@ shell_deny_patterns = ['rm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+(/|~)\s*$', ':\(\)\s*\{', 
 # File tools may only touch these trees.
 file_roots = ["~/Documents", "~/Downloads", "~/Desktop", "~/Pictures", "~/Music", "~/Videos"]
 confirm_timeout_s = 20
+
+[scan]
+# Virus scan ("check my pc for viruses"): ClamAV engine started only for the scan, + YARA Forge core rules.
+clamd = "/usr/bin/clamd"
+clamav_db = "/var/lib/clamav"
+threads = 12          # ClamAV/YARA threads, at idle CPU/disk priority (16-core CPU)
+max_seconds_per_file = 60  # a giant archive (SDK zips) stops after this
+max_file_mb = 400     # bigger files (models, videos) are skipped
+detect_pua = false    # "possibly unwanted" detections are noisy on game tools
+web_lookup = true     # look up the names of flagged unknown programs (explains, never decides)
+

@@ -12,6 +12,8 @@
   assistant escalations    what Mio couldn't do locally and sent to Claude (last 7 days)
   assistant learned        what Mio has learned: requests that worked, names she knows, word fixes
   assistant dream [--dry]  train her local model on her wins now (normally automatic while you're away)
+  assistant scan [quick]   virus scan of the whole PC in the background (she announces the result);
+                           also: scan status | stop | results | report | restore NAME | trust 1,2
   assistant review [DAYS]  what went badly today (or over the last DAYS days); nightly ones are in
                            ~/.local/state/assistant/reviews/
 """
@@ -33,7 +35,19 @@ def main():
 
         print(review.report(int(rest) if rest.isdigit() else 1))
         return
-    req = {"cmd": cmd}
+    if cmd == "scan":  # assistant scan [quick|status|stop|results|restore NAME]: through the daemon's scanner
+        action, _, items = rest.partition(" ")
+        action = action or "start"
+        if action == "report":
+            from assistant.virusscan import latest
+
+            rep = latest()
+            print(open(rep["report_md"]).read() if rep and rep.get("report_md") else "no scan yet")
+            return
+        req = {"cmd": "tool", "name": "virus_scan", "args": {"action": action, "items": items}}
+        args, cmd = [], "tool"
+    else:
+        req = {"cmd": cmd}
     if cmd in ("say", "ask"):
         req["text"] = rest
     if cmd == "dream":
@@ -50,7 +64,9 @@ def main():
         sys.exit("assistantd is not running (systemctl --user start assistantd)")
     if "error" in resp:
         sys.exit(resp["error"])
-    if cmd == "status":
+    if cmd == "tool":
+        print(resp.get("result", ""))
+    elif cmd == "status":
         print(json.dumps(resp, indent=1))
     elif cmd in ("clip", "dream"):
         print(resp.get("result", ""))

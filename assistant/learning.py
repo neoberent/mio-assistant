@@ -391,7 +391,7 @@ class Lexicon:
 NEGATIVE = re.compile(r"^\W*(no+|nope|wrong|that'?s (wrong|not (it|right|what i (said|meant|wanted)))|not that( one)?|"
                       r"you (got it|misheard|heard it) wrong|that'?s the wrong)\b", re.I)
 CORRECTION = re.compile(r"\b(?:i (?:said|meant|wanted)|i'?m saying)\s+(?:the |a )?(.+?)(?:,? not .+)?[.!?]*$", re.I)
-DESTRUCTIVE = {"trash", "move_file", "write_file", "install_packages", "install_updates", "type_text", "browser_type"}
+DESTRUCTIVE = {"quarantine", "trash", "move_file", "write_file", "install_packages", "install_updates", "type_text", "browser_type"}
 FOLLOW_UP = re.compile(r"^\W*(yes|yeah|yep|sure|ok(ay)?|do it|go ahead|please do)\b|\b(them|those|that one|it)\W*$", re.I)
 FORCE_CLAUDE = re.compile(r"^\s*(hey )?(ask|use) claude\b[,:]?\s*(to )?", re.I)
 # tools that only look: guessing wrong between two of these costs nothing, so she just tries
