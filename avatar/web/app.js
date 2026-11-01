@@ -587,12 +587,21 @@
       if (window.innerWidth >= mw) window.dispatchEvent(new Event("resize"));
     },
     setActive(on) { on ? app.ticker.start() : app.ticker.stop(); if (on) fit(); },
+    // avatar.py, before it unmaps the window: the surface keeps its last frame and shows it again on the next
+    // map, so draw an empty one first; otherwise she flashes at her old spot before arrive() fades her in.
+    hide() {
+      if (model) { model.alpha = 0; quiet = true; }
+      hideStatus(); glow.className = ""; bubble.classList.remove("on");
+      app.renderer.render(app.stage);
+      app.ticker.stop();
+    },
     layout(o) {  // avatar.py, before she appears: stage (full monitor) or compact (corner window)
       stage = !!o.stage; glowEnabled = o.glow !== false; home = o.home || null;
       fixed = o.fixed !== false; margins = o.margins || [40, 0];
       box = { w: o.w, h: o.h }; monitor = { w: o.mw || 0, h: o.mh || 0 };
       document.body.classList.toggle("stage", stage);
       frame = stage ? { x: 0, y: 0, w: o.w, h: o.h } : null;
+      if (stage && model) { model.alpha = 0; quiet = true; }  // stays invisible until arrive() fades her in
       hideStatus(); glow.className = ""; bubble.classList.remove("on");
       placeUi();
     },

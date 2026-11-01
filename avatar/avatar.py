@@ -69,6 +69,8 @@ class Avatar(Gtk.Application):
         self.bounds = None
         self.dragging = False
         self.stage = False
+        self.hiding = False
+        self.hide_seq = 0
         self.start_hidden = "--show" not in sys.argv
 
     # ── window ──────────────────────────────────────────────────────────────
@@ -215,7 +217,9 @@ class Avatar(Gtk.Application):
         self.view.evaluate_javascript(code, -1, None, None, None, None, None)
 
     def show(self, game: bool = False):
-        arriving = not self.win.get_visible()
+        arriving = not self.win.get_visible() or self.hiding
+        self.hide_seq += 1  # cancels a hide that is still waiting for its empty frame
+        self.hiding = False
         if arriving:  # pick the layout only on a fresh appearance; never jump while she's on screen
             self.stage = bool(self.cfg.get("stage", True)) and not game
             mon = self._monitor(self.cfg.get("output"))
@@ -237,8 +241,22 @@ class Avatar(Gtk.Application):
             self.js("avatar.arrive()")
 
     def hide(self):
-        self.js("avatar.setActive(false)")
-        self.win.set_visible(False)
+        """Blank the page first, then unmap: the surface shows its last frame again on the next map."""
+        if not self.win.get_visible() or self.hiding:
+            return
+        self.hiding = True
+        self.hide_seq += 1
+        seq = self.hide_seq
+
+        def unmap():
+            if seq == self.hide_seq:
+                self.hiding = False
+                self.win.set_visible(False)
+            return False
+
+        # give the compositor a moment to take the empty frame before the window goes away
+        self.view.evaluate_javascript("avatar.hide()", -1, None, None, None,
+                                      lambda *_: GLib.timeout_add(120, unmap), None)
 
     # ── messages from the page ──────────────────────────────────────────────
     def _on_js(self, _ucm, value):
