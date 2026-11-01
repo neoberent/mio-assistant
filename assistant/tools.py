@@ -14,6 +14,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -23,8 +24,24 @@ from .pkgcheck import assess_install, read_terminal
 
 log = logging.getLogger("tools")
 MAX_OUT = 1500
+AUDIT_MAX = 5 << 20  # rotate the audit log at 5 MB (one .1 kept)
 
 ConfirmFn = Callable[[str], Awaitable[bool]]
+
+
+def _stop(proc: asyncio.subprocess.Process, shell: bool):
+    """Kill a timed-out command. For `bash -c` the whole pipeline goes (killing only bash orphaned e.g. a hung
+    `ping | grep`), but only while bash itself is still running: if it already exited and just an app it
+    started in the background (`brave &`) keeps the pipe open, that app is left alone."""
+    if proc.returncode is not None:
+        return
+    try:
+        if shell:
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except ProcessLookupError:
+        pass
 
 
 async def sh(*argv: str, timeout: float = 15, input_: bytes | None = None, shell: bool = False,
@@ -32,7 +49,8 @@ async def sh(*argv: str, timeout: float = 15, input_: bytes | None = None, shell
     if shell:
         proc = await asyncio.create_subprocess_shell(
             argv[0], stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-            stdin=asyncio.subprocess.PIPE if input_ else asyncio.subprocess.DEVNULL, cwd=Path.home())
+            stdin=asyncio.subprocess.PIPE if input_ else asyncio.subprocess.DEVNULL, cwd=Path.home(),
+            start_new_session=True)  # own process group, so a hung pipeline can be stopped as a whole
     else:
         proc = await asyncio.create_subprocess_exec(
             *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
@@ -40,10 +58,10 @@ async def sh(*argv: str, timeout: float = 15, input_: bytes | None = None, shell
     try:
         out, _ = await asyncio.wait_for(proc.communicate(input_), timeout)
     except asyncio.TimeoutError:
-        proc.kill()
+        _stop(proc, shell)
         return 124, f"timed out after {timeout}s"
     except asyncio.CancelledError:
-        proc.kill()
+        _stop(proc, shell)
         raise
     text = out.decode(errors="replace").strip()
     if limit and len(text) > limit:
@@ -271,10 +289,16 @@ class ToolBox:
 
     # ── gate ────────────────────────────────────────────────────────────────
     def _audit(self, name: str, args: dict, decision: str, result: str = ""):
-        AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with AUDIT_LOG.open("a") as f:
-            f.write(json.dumps({"t": dt.datetime.now().isoformat(timespec="seconds"), "tool": name,
-                                "args": args, "decision": decision, "result": result[:200]}) + "\n")
+        try:  # logging must never turn a finished action into "something went wrong" (e.g. disk full)
+            AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
+            if AUDIT_LOG.exists() and AUDIT_LOG.stat().st_size > AUDIT_MAX:
+                AUDIT_LOG.replace(AUDIT_LOG.with_name(AUDIT_LOG.name + ".1"))  # keep one old file
+            with AUDIT_LOG.open("a") as f:
+                f.write(json.dumps({"t": dt.datetime.now().isoformat(timespec="seconds"), "tool": name,
+                                    "args": args, "decision": decision, "result": result[:200]},
+                                   default=str) + "\n")
+        except OSError as e:
+            log.warning("audit log not written: %s", e)
 
     def _shell_policy(self, cmd: str) -> str:
         if any(re.search(p, cmd) for p in self.sec.get("shell_deny_patterns", [])):
@@ -438,8 +462,12 @@ class ToolBox:
                 await self.on_tool(name, args)
             except Exception:
                 pass
-        try:
-            result = await tool.fn(**args)
+        limit = self.sec.get("tool_timeout_s", 180)
+        try:  # a hung tool (network, a stuck subprocess) must not leave her "thinking" forever
+            result = await asyncio.wait_for(tool.fn(**args), limit)
+        except asyncio.TimeoutError:
+            log.warning("tool %s timed out after %ss", name, limit)
+            result = f"error: {name} took longer than {limit} seconds and was stopped"
         except Exception as e:
             result = f"error: {e}"
         self._audit(name, args, decision, result)

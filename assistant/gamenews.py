@@ -76,12 +76,19 @@ async def roblox_update() -> str:
         when = dt.datetime.strptime(m[1], "%m/%d/%Y %I:%M:%S %p")
         out.append(f"Roblox last updated on {_day(when.timestamp())}, version {m[2]}. Roblox doesn't publish "
                    "patch notes for client updates.")
-    proc = await asyncio.create_subprocess_exec("flatpak", "remote-ls", "--updates", "--columns=application",
-                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
-    pending, _ = await proc.communicate()
+    try:  # asks flathub over the network: can hang on a bad connection
+        proc = await asyncio.create_subprocess_exec("flatpak", "remote-ls", "--updates", "--columns=application",
+                                                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        pending, _ = await asyncio.wait_for(proc.communicate(), 20)
+        checked = proc.returncode == 0
+    except asyncio.TimeoutError:
+        proc.kill()
+        pending, checked = b"", False
+    except OSError:  # no flatpak
+        return " ".join(out) or "I couldn't get Roblox's update history."
     if b"org.vinegarhq.Sober" in pending:
         out.append("There's a Sober update waiting (flatpak update).")
-    elif proc.returncode == 0:
+    elif checked:
         out.append("Sober is up to date.")
     return " ".join(out) or "I couldn't get Roblox's update history."
 

@@ -14,6 +14,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from .fileutil import atomic_write_text
+
 log = logging.getLogger("web")
 
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -44,7 +46,7 @@ def _note_refused(url: str):
     d = _refused()
     d[host] = time.time()
     try:
-        _refused_file().write_text(json.dumps(d, indent=1))
+        atomic_write_text(_refused_file(), json.dumps(d, indent=1))
     except OSError:
         pass
 

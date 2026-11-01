@@ -7,6 +7,7 @@ import json
 import re
 
 from .config import STATE_DIR
+from .fileutil import atomic_write_text
 
 STATE = STATE_DIR / "briefing.json"
 
@@ -19,7 +20,7 @@ def _state() -> dict:
 
 
 def _save(d: dict):
-    STATE.write_text(json.dumps(d, indent=1))
+    atomic_write_text(STATE, json.dumps(d, indent=1))
 
 
 def due_today(start_hour: int, end_hour: int) -> bool:

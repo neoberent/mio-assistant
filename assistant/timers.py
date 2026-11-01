@@ -13,6 +13,8 @@ import re
 import uuid
 from pathlib import Path
 
+from .fileutil import atomic_write_text
+
 log = logging.getLogger("timers")
 
 MISSED_GRACE = dt.timedelta(hours=12)  # older missed reminders are dropped silently
@@ -110,12 +112,24 @@ class Timers:
 
     def _load(self) -> list[dict]:
         try:
-            return json.loads(self.path.read_text())
+            raw = json.loads(self.path.read_text())
         except (FileNotFoundError, json.JSONDecodeError):
             return []
+        items = []
+        for i in raw if isinstance(raw, list) else []:  # one broken entry must not stop every other timer
+            try:
+                dt.datetime.fromisoformat(i["due"])
+                items.append({"id": uuid.uuid4().hex[:8], "kind": "timer", "label": "", "seconds": None,
+                              **i, "label": str(i.get("label") or "")})
+            except (TypeError, KeyError, ValueError):
+                log.warning("skipping broken timer entry: %r", i)
+        return sorted(items, key=lambda i: i["due"])
 
     def _save(self):
-        self.path.write_text(json.dumps(self.items, indent=1))
+        try:  # a failed write (disk full) keeps them in memory; they still fire while she runs
+            atomic_write_text(self.path, json.dumps(self.items, indent=1))
+        except OSError as e:
+            log.error("could not save timers: %s", e)
         self._changed.set()
 
     def add(self, due: dt.datetime, label: str = "", kind: str = "timer", seconds: int | None = None) -> dict:

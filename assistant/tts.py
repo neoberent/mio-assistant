@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import select
 import shutil
 import subprocess
 import tempfile
@@ -94,11 +95,19 @@ class _Chatterbox:
             if self.proc is None or self.proc.poll() is not None:
                 log.warning("chatterbox worker not running; restarting")
                 self.start()
-            self.proc.stdin.write(json.dumps({"text": text, "voice": voice}).encode() + b"\n")
-            self.proc.stdin.flush()
+            try:
+                self.proc.stdin.write(json.dumps({"text": text, "voice": voice}).encode() + b"\n")
+                self.proc.stdin.flush()
+            except (BrokenPipeError, OSError):
+                self._kill()
+                raise RuntimeError("chatterbox worker died")
+            # a hung worker (stuck CUDA call) would otherwise block here forever and keep her "speaking"
+            if not select.select([self.proc.stdout], [], [], float(self.cfg.get("chatterbox_timeout_s", 60)))[0]:
+                self._kill()
+                raise RuntimeError("chatterbox worker hung; restarted next time")
             head = self.proc.stdout.readline()
             if not head:
-                self.proc = None
+                self._kill()
                 raise RuntimeError("chatterbox worker died")
             head = json.loads(head)
             if "error" in head:
@@ -108,15 +117,23 @@ class _Chatterbox:
             while len(buf) < n:
                 chunk = self.proc.stdout.read(n - len(buf))
                 if not chunk:
-                    self.proc = None
+                    self._kill()
                     raise RuntimeError("chatterbox worker died mid-sentence")
                 buf += chunk
             audio = np.frombuffer(bytes(buf), "<f4").copy()
         return slow_down(audio, head["sr"], float(self.cfg.get("chatterbox_tempo", 1.0))), head["sr"]
 
-    def close(self):
+    def _kill(self):
         if self.proc and self.proc.poll() is None:
             self.proc.kill()
+            try:
+                self.proc.wait(5)
+            except subprocess.TimeoutExpired:
+                pass
+        self.proc = None
+
+    def close(self):
+        self._kill()
 
 
 def split_sentences(text: str) -> list[str]:

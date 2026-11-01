@@ -28,6 +28,7 @@ from typing import Awaitable, Callable
 from . import scan_checks as sc
 from .config import PROJECT_DIR, RUNTIME, STATE_DIR, XDG_DATA
 from .scan_checks import LEVELS, TEMP_DIRS, Ctx, Finding
+from .fileutil import atomic_write_text
 
 log = logging.getLogger("virusscan")
 
@@ -738,7 +739,7 @@ def add_trust(path: str, digest: str, why: str = "the user said it's fine"):
     items = [t for t in load_trust() if t.get("path") != path]
     items.append({"path": path, "sha256": digest, "why": why, "t": _now()})
     TRUST_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TRUST_FILE.write_text(json.dumps(items, indent=1))
+    atomic_write_text(TRUST_FILE, json.dumps(items, indent=1))
 
 
 # ── report + what she says ──────────────────────────────────────────────────

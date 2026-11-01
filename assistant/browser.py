@@ -20,7 +20,7 @@ NOT_CONNECTED = ("the browser extension isn't connected. Brave has to be open wi
 async def call(action: str, **args) -> dict:
     """{"result": …} or {"error": "…"}."""
     try:
-        r, w = await asyncio.wait_for(asyncio.open_unix_connection(str(SOCK)), 2)
+        r, w = await asyncio.wait_for(asyncio.open_unix_connection(str(SOCK), limit=16 << 20), 2)  # big pages: >64 KiB
     except (OSError, asyncio.TimeoutError):
         return {"error": NOT_CONNECTED}
     try:
@@ -28,7 +28,7 @@ async def call(action: str, **args) -> dict:
         await w.drain()
         line = await asyncio.wait_for(r.readline(), 25)
         return json.loads(line) if line else {"error": NOT_CONNECTED}
-    except (OSError, asyncio.TimeoutError, json.JSONDecodeError):
+    except (OSError, asyncio.TimeoutError, ValueError):  # ValueError: bad JSON or an over-long line
         return {"error": "the browser didn't answer"}
     finally:
         w.close()

@@ -22,6 +22,7 @@ chatterbox_voice = ""         # "" = Chatterbox's own voice; or a 5 s+ .wav to s
 chatterbox_device = "cuda"    # cuda | cpu (slow)
 chatterbox_half = true        # speech LM in fp16: ~0.85 GB less VRAM for her brain, same sound
 chatterbox_tempo = 0.92       # speaking speed, pitch kept (Rubber Band R3); 1.0 = as generated
+chatterbox_timeout_s = 60     # a sentence taking longer = hung worker: restart it, Kokoro says this one
 kokoro_voice = "af_heart"     # af_heart, af_bella, af_nicole, af_sky, jf_alpha (ja) ...
 kokoro_speed = 1.05
 piper_voice = "en_US-amy-medium"
@@ -45,6 +46,7 @@ claude_model = "haiku"        # haiku | sonnet | opus (cli aliases) or a full id
 claude_max_turns = 4          # max tool round-trips per request
 claude_daily_limit = 60       # hard cap on Claude requests per day
 claude_timeout_s = 90
+request_timeout_s = 300       # watchdog: a request still running after this is stopped (she never stays stuck thinking)
 history_turns = 6             # max turns remembered while she is on screen (forgotten when she hides)
 session_timeout_s = 600       # also forget after 10 min without talking (e.g. when pinned)
 
@@ -184,6 +186,7 @@ shell_deny_patterns = ['rm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+(/|~)\s*$', ':\(\)\s*\{', 
 # File tools may only touch these trees.
 file_roots = ["~/Documents", "~/Downloads", "~/Desktop", "~/Pictures", "~/Music", "~/Videos"]
 confirm_timeout_s = 20
+tool_timeout_s = 180          # one tool call running longer than this is stopped and reported to the model
 
 [scan]
 # Virus scan ("check my pc for viruses"): ClamAV engine started only for the scan, + YARA Forge core rules.

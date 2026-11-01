@@ -77,6 +77,9 @@ class ClaudeBrain:
         except asyncio.TimeoutError:
             proc.kill()
             raise ClaudeError("Claude took too long")
+        except asyncio.CancelledError:  # request stopped (watchdog): don't leave claude -p running
+            proc.kill()
+            raise
         try:
             data = json.loads(out.decode())
         except json.JSONDecodeError:

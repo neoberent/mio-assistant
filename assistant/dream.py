@@ -29,6 +29,8 @@ import urllib.request
 from pathlib import Path
 
 from .config import PROJECT_DIR, STATE_DIR, XDG_DATA
+from .aio import spawn
+from .fileutil import atomic_write_text
 
 log = logging.getLogger("dream")
 
@@ -174,7 +176,8 @@ class Dreamer:
 
     async def run(self):
         minutes = self.cfg.get("train_idle_min", 30)
-        asyncio.create_task(self._watch_idle(minutes))
+        if getattr(self, "_idle_task", None) is None or self._idle_task.done():  # once, also after a restart
+            self._idle_task = spawn(self._watch_idle(minutes), "dream idle watch")
         while True:
             await asyncio.sleep(300)
             try:
@@ -363,7 +366,7 @@ def train(base: str, dry: bool = False):
     else:
         result["active"] = False
     subprocess.run(["ollama", "rm", candidate], stdout=subprocess.DEVNULL)
-    STATE.write_text(json.dumps(dict(s, **result), indent=1))
+    atomic_write_text(STATE, json.dumps(dict(s, **result), indent=1))
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 from . import browse, config
+from .aio import spawn, supervise
 from .audio import Player, Recorder, chime, envelope
 from .brain import fastpath
 from .brain.claude import ClaudeBrain, ClaudeError
@@ -135,6 +136,9 @@ PICK_RESULT = re.compile(r"(?:open|play|click(?: on)?|watch|start|put on|go to|t
                          r"(first|1st|second|2nd|third|3rd|top|last) (video|result|link|one)(?: on (?:the|this) page)?")
 OFFER_TOP = re.compile(r"\b(open|play|watch|start|put on|click)\b[^.?!]{0,40}\b(top|first|best)\b[^.?!]{0,20}"
                        r"\b(result|video|one|hit|link)s?\b[^.?!]*\?\s*$", re.I)
+
+
+SOCK_LIMIT = 16 << 20  # one control line (pasted page text, tool results); asyncio's default is 64 KiB
 
 
 class Avatar:
@@ -278,7 +282,7 @@ class Assistant:
     def end_session(self):
         if self.memory.active():
             log.info("session ended, conversation forgotten")
-            asyncio.get_running_loop().create_task(self._learn_about_user(list(self.memory.turns)))
+            spawn(self._learn_about_user(list(self.memory.turns)))
         self.memory.end_session()
 
     async def toggle_pin(self):
@@ -402,7 +406,7 @@ class Assistant:
 
     async def _interaction(self, text: str | None = None):
         if self.dreamer:
-            asyncio.create_task(self.dreamer.stop("you called me"))
+            spawn(self.dreamer.stop("you called me"))
         loop_time = asyncio.get_running_loop().time()
         if loop_time - self._last_activity > self.cfg.brain.get("session_timeout_s", 600):
             self.end_session()  # e.g. pinned on screen but untouched for a long time
@@ -413,10 +417,10 @@ class Assistant:
                 await self.set_state("listening")
                 if self.cfg.avatar.get("show_while_listening", True):
                     await self.show()
-                asyncio.create_task(self.beep(True))
+                spawn(self.beep(True))
                 self.clipper.asked_at = loop_time  # "clip that" should reach back to when you started talking
                 if self.cfg.brain.get("local_enabled", True) and not self.gaming:
-                    asyncio.create_task(self.local.preload())  # warm the local model while you speak
+                    spawn(self.local.preload())  # warm the local model while you speak
                 audio = await self.recorder.record()
                 await self.beep(False)
                 if audio is None:
@@ -432,7 +436,13 @@ class Assistant:
             await self.set_state("thinking")
             await self.show()  # stay visible while working, also for typed requests
             started = time.time()
-            reply = await self.respond(text)
+            limit = self.cfg.brain.get("request_timeout_s", 300)
+            try:  # watchdog: whatever hangs (a model, a tool, a bridge), she never stays stuck "thinking"
+                reply = await asyncio.wait_for(self.respond(text), limit)
+            except asyncio.TimeoutError:
+                log.warning("request timed out after %ss: %r", limit, text)
+                self.last_src = "timeout"
+                reply = "Sorry, that took far too long, so I stopped it. Try asking me again?"
             self._hints = []
             log.info("reply: %r", reply)
             from . import review
@@ -476,9 +486,9 @@ class Assistant:
             await self.dreamer.stop("a game started")
         if self.cfg.clips.get("enabled", True) and not self.cfg.clips.get("always", False):
             if active:
-                asyncio.create_task(self.clipper.start(game, self.gamemode.pattern if self.gamemode else None))
+                spawn(self.clipper.start(game, self.gamemode.pattern if self.gamemode else None))
             else:
-                asyncio.create_task(self.clipper.stop())
+                spawn(self.clipper.stop())
         if active:
             if self.state == "idle":
                 await self.avatar.send(cmd="hide")
@@ -854,12 +864,20 @@ class Assistant:
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         try:
             while line := await reader.readline():
-                req = json.loads(line)
-                resp = await self.dispatch(req)
-                writer.write((json.dumps(resp) + "\n").encode())
+                try:  # one bad request gets an error reply; it never kills the connection or goes unanswered
+                    req = json.loads(line)
+                    if not isinstance(req, dict):
+                        raise ValueError("request must be a JSON object")
+                    resp = await self.dispatch(req)
+                except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
+                    resp = {"error": f"bad request: {e}"}
+                except Exception as e:  # noqa: BLE001
+                    log.exception("control command failed")
+                    resp = {"error": f"failed: {e}"}
+                writer.write((json.dumps(resp, default=str) + "\n").encode())
                 await writer.drain()
-        except (ConnectionError, json.JSONDecodeError):
-            pass
+        except (ConnectionError, asyncio.LimitOverrunError, ValueError):
+            pass  # client went away, or sent a line over SOCK_LIMIT
         finally:
             writer.close()
 
@@ -880,7 +898,7 @@ class Assistant:
             self.player.stop()
             self.recorder.cancel()
         elif cmd == "say":
-            asyncio.create_task(self._say_then_idle(req.get("text", "")))
+            spawn(self._say_then_idle(req.get("text", "")))
         elif cmd == "ask":  # typed (CLI, browser popup): one after another, else two requests share one trace
             async def ask(text: str, before: asyncio.Task | None = self._task):
                 if before and not before.done():
@@ -890,8 +908,8 @@ class Assistant:
         elif cmd == "clip":  # hotkey: no voice, just a chime and a notification
             result = await self.tools.call("clip", {"seconds": req["seconds"]} if req.get("seconds") else {})
             ok = result.startswith("saved")
-            asyncio.create_task(self.beep(True) if ok else self.player.play(*chime(False)))
-            asyncio.create_task(sh("notify-send", "-a", "Assistant", "-t", "4000",
+            spawn(self.beep(True) if ok else self.player.play(*chime(False)))
+            spawn(sh("notify-send", "-a", "Assistant", "-t", "4000",
                                    "Clip saved" if ok else "No clip", result.split(" to /")[0] if ok else result))
             return {"result": result}
         elif cmd == "escalations":
@@ -899,7 +917,7 @@ class Assistant:
             return {"summary": summary, "items": rows[-30:]}
         elif cmd == "dream" and self.dreamer:  # start one now (for testing): `assistant dream`
             if self.dreamer.proc is None:
-                asyncio.create_task(self.dreamer.dream(dry=bool(req.get("dry"))))
+                spawn(self.dreamer.dream(dry=bool(req.get("dry"))))
             return {"result": "dreaming (see ~/.local/share/assistant/dream/train.log)"}
         elif cmd == "forget":
             self.memory.clear()
@@ -951,7 +969,7 @@ class Assistant:
             text = f"It's {dt.datetime.now().strftime('%-H:%M')}, here's your alarm!"
         if late:
             text = "While I was away, " + text[0].lower() + text[1:]
-        asyncio.create_task(sh("notify-send", "-a", "Assistant", "-u", "critical", "Mio", text))
+        spawn(sh("notify-send", "-a", "Assistant", "-u", "critical", "Mio", text))
         for _ in range(60):  # don't talk over an ongoing conversation
             if self.state == "idle":
                 break
@@ -964,7 +982,7 @@ class Assistant:
     async def _scan_done(self, text: str):
         """The virus scan finished: tell the user, but not over a conversation or during a game."""
         log.info("virus scan done: %s", text)
-        asyncio.create_task(sh("notify-send", "-a", "Assistant", "-u", "normal", "Mio: virus scan done",
+        spawn(sh("notify-send", "-a", "Assistant", "-u", "normal", "Mio: virus scan done",
                                text if len(text) < 300 else text[:297] + "..."))
         while self.state != "idle" or self.gaming:
             await asyncio.sleep(2)
@@ -973,7 +991,7 @@ class Assistant:
 
     def _on_wake(self):
         if self.state == "idle":
-            asyncio.create_task(self.ptt())
+            spawn(self.ptt())
 
     async def _auto_briefing(self):
         """Once per day, the first time the PC is up in the morning."""
@@ -999,22 +1017,31 @@ class Assistant:
     def _log_escalation(self, text: str, reason: str):
         import datetime as dt
 
-        with config.ESCALATIONS.open("a") as f:
-            f.write(json.dumps({"t": dt.datetime.now().isoformat(timespec="seconds"), "text": text,
-                                "reason": reason}) + "\n")
+        try:
+            with config.ESCALATIONS.open("a") as f:
+                f.write(json.dumps({"t": dt.datetime.now().isoformat(timespec="seconds"), "text": text,
+                                    "reason": reason}) + "\n")
+        except OSError as e:
+            log.warning("escalation not logged: %s", e)
 
     def escalation_report(self, days: int = 7, examples: int = 5) -> tuple[str, list[dict]]:
         import datetime as dt
 
         since = (dt.datetime.now() - dt.timedelta(days=days)).isoformat()
+        rows = []
         try:
-            rows = [json.loads(l) for l in config.ESCALATIONS.read_text().splitlines() if l.strip()]
+            for l in config.ESCALATIONS.read_text().splitlines():
+                try:  # a half-written line (crash, full disk) is skipped, not fatal
+                    if isinstance(r := json.loads(l), dict) and isinstance(r.get("t"), str):
+                        rows.append(r)
+                except json.JSONDecodeError:
+                    pass
         except FileNotFoundError:
-            rows = []
+            pass
         rows = [r for r in rows if r["t"] >= since]
         if not rows:
             return f"In the last {days} days I handled everything myself, nothing went to Claude.", rows
-        recent = "; ".join(f"“{r['text'][:60]}”" for r in rows[-examples:])
+        recent = "; ".join(f"“{str(r.get('text', ''))[:60]}”" for r in rows[-examples:])
         return (f"In the last {days} days I passed {len(rows)} requests to Claude. The latest were: {recent}.", rows)
 
     async def _say_then_idle(self, text: str):
@@ -1033,9 +1060,9 @@ class Assistant:
         sock = config.DAEMON_SOCK
         if sock.exists():
             sock.unlink()
-        server = await asyncio.start_unix_server(self.handle_client, path=str(sock))
+        server = await asyncio.start_unix_server(self.handle_client, path=str(sock), limit=SOCK_LIMIT)
         os.chmod(sock, 0o600)
-        asyncio.create_task(self.warmup())
+        spawn(self.warmup(), "warmup")
         loop = asyncio.get_running_loop()
         if self.cfg.wakeword.get("enabled", False):
             try:
@@ -1053,28 +1080,29 @@ class Assistant:
                 self.wake.start()
             except Exception as e:
                 log.warning("wake word disabled: %s", e)
-        asyncio.create_task(self._auto_briefing())
+        spawn(self._auto_briefing(), "auto briefing")
         if self.dreamer:
-            asyncio.create_task(self.dreamer.run())
-        asyncio.create_task(self.timers.run())
+            supervise(self.dreamer.run, "dreamer")
+        supervise(self.timers.run, "timers")
         from . import review
 
-        asyncio.create_task(review.nightly())
+        supervise(review.nightly, "nightly review")
         from . import riff
 
         riff.bridge = riff.Bridge()
-        asyncio.create_task(riff.bridge.serve())
+        supervise(riff.bridge.serve, "riff bridge")
         if self.cfg.gamemode.get("enabled", True):
             from .gamemode import GameMode
 
             self.gamemode = GameMode(self.cfg.gamemode, self._on_gamemode)
-            asyncio.create_task(self.gamemode.run())
+            supervise(self.gamemode.run, "game mode")
         if self.cfg.clips.get("enabled", True) and self.cfg.clips.get("always", False):
-            asyncio.create_task(self.clipper.start())
+            spawn(self.clipper.start())
         try:
             from .tray import Tray
 
-            asyncio.create_task(Tray(self).run())
+            tray = Tray(self)
+            supervise(tray.run, "tray")
         except Exception as e:
             log.warning("tray disabled: %s", e)
         stop = asyncio.Event()

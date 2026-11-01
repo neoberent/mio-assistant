@@ -48,10 +48,14 @@ class Clipper:
         async def niri(*what) -> list | dict:
             p = await asyncio.create_subprocess_exec("niri", "msg", "-j", *what, stdout=asyncio.subprocess.PIPE,
                                                      stderr=asyncio.subprocess.DEVNULL)
-            return json.loads((await p.communicate())[0] or b"[]")
+            try:
+                return json.loads((await asyncio.wait_for(p.communicate(), 5))[0] or b"[]")
+            except asyncio.TimeoutError:
+                p.kill()
+                raise
         try:
             wins, spaces = await niri("windows"), await niri("workspaces")
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, asyncio.TimeoutError, OSError):
             return "screen"
         outputs = {w["id"]: w["output"] for w in spaces}
         game = next((w for w in wins if pattern and pattern.match(w.get("app_id") or "")), None)

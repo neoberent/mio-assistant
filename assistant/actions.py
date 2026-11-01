@@ -16,6 +16,7 @@ from pathlib import Path
 import httpx
 
 from .config import STATE_DIR
+from .fileutil import atomic_write_text
 
 S = {"type": "string"}
 I = {"type": "integer"}
@@ -284,13 +285,13 @@ def register(box):
             if not steps:
                 return "error: save needs 'steps'"
             items[key] = steps
-            ROUTINES_FILE.write_text(json.dumps(items, indent=1, ensure_ascii=False))
+            atomic_write_text(ROUTINES_FILE, json.dumps(items, indent=1, ensure_ascii=False))
             return f"saved routine '{key}': {', '.join(steps)}"
         if key not in items:
             return f"no routine called '{key}'" + (f"; there are: {', '.join(items)}" if items else "")
         if action == "delete":
             items.pop(key)
-            ROUTINES_FILE.write_text(json.dumps(items, indent=1, ensure_ascii=False))
+            atomic_write_text(ROUTINES_FILE, json.dumps(items, indent=1, ensure_ascii=False))
             return f"deleted routine '{key}'"
         if box.run_steps is None:
             return "error: routines can only run inside the assistant"

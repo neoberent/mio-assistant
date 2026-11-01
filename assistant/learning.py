@@ -30,6 +30,7 @@ from urllib.parse import urlparse
 import httpx
 
 from .config import MODELS_DIR, STATE_DIR
+from .fileutil import atomic_write_text
 
 log = logging.getLogger("learning")
 
@@ -156,8 +157,8 @@ class Lexicon:
             self.names = dict(keep)
         if len(self.words) > MAX_WORDS:
             self.words = dict(sorted(self.words.items(), key=lambda kv: kv[1], reverse=True)[:MAX_WORDS])
-        LEXICON_FILE.write_text(json.dumps({"names": self.names, "fixes": self.fixes, "words": self.words},
-                                           indent=1, ensure_ascii=False))
+        atomic_write_text(LEXICON_FILE, json.dumps({"names": self.names, "fixes": self.fixes,
+                                                    "words": self.words}, indent=1, ensure_ascii=False))
 
     def learn(self, name: str, src: str, weight: int = 1, save: bool = True):
         name = re.sub(r"\s+", " ", name).strip(" .,!?\"'“”-")
@@ -361,11 +362,10 @@ class Lexicon:
                 if len(phrase) < 4 or (not uncommon and len(span) < 2):
                     continue
                 bar = 0.0 if uncommon else 0.08
-                exact = [norm for _, norm in targets if f" {norm} " in f" {phrase} "]
+                if any(f" {norm} " in f" {phrase} " for _, norm in targets):
+                    continue  # a known name was said right: never swap it for a similar one ("Claude" → "Cloud")
                 for name, norm in targets:
-                    if f" {norm} " in f" {phrase} " or abs(len(norm) - len(phrase)) > max(4, len(norm) // 2):
-                        continue
-                    if any(f" {e} " in f" {norm} " for e in exact):  # the name was said right, the rest isn't it
+                    if abs(len(norm) - len(phrase)) > max(4, len(norm) // 2):
                         continue
                     if difflib.SequenceMatcher(None, phrase, norm).quick_ratio() < 0.5:
                         continue
@@ -440,7 +440,7 @@ class Skills:
 
     def save(self):
         self.items = self.items[-MAX_SKILLS:]
-        SKILLS_FILE.write_text(json.dumps(self.items, ensure_ascii=False))
+        atomic_write_text(SKILLS_FILE, json.dumps(self.items, ensure_ascii=False))
 
     async def _embed(self, text: str) -> list[float] | None:
         """CPU only (num_gpu 0): ~20 ms, never touches the GPU a game is using."""

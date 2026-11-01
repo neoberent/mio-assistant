@@ -162,6 +162,9 @@ class Avatar(Gtk.Application):
             w, h = min(w, g.width), min(h, g.height)
             self.cfg["margin_right"] = min(int(self.cfg.get("margin_right", 40)), g.width - w)
             self.cfg["margin_bottom"] = min(int(self.cfg.get("margin_bottom", 0)), g.height - h)
+        # stage: -1 = the whole monitor, also under panels' reserved strips (with 0 the glow stopped short of a
+        # side bar); compact corner: 0 = stay clear of them
+        LayerShell.set_exclusive_zone(self.win, -1 if self.stage else 0)
         if self.stage:  # covers the monitor; the page places her inside
             for e in (LayerShell.Edge.LEFT, LayerShell.Edge.TOP, LayerShell.Edge.RIGHT, LayerShell.Edge.BOTTOM):
                 LayerShell.set_anchor(self.win, e, True)

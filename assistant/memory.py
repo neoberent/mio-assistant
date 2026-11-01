@@ -4,10 +4,13 @@ from __future__ import annotations
 import datetime as dt
 import difflib
 import json
+import logging
 import re
 
 from .config import MEMORY_FILE, USAGE_FILE
+from .fileutil import atomic_write_text
 
+log = logging.getLogger("memory")
 MAX_FACTS = 200
 FACT_CHARS = 1200  # facts put into one request; the rest wait until a request is about them
 SECRET = re.compile(r"password|passwort|token|secret|api.?key|pin code|\bpin\b|credit card|iban", re.I)
@@ -58,12 +61,13 @@ class Memory:
 
     def _load(self):
         try:
-            self.facts = json.loads(MEMORY_FILE.read_text()).get("facts", [])
+            data = json.loads(MEMORY_FILE.read_text())
+            self.facts = [f for f in data.get("facts", []) if isinstance(f, str)] if isinstance(data, dict) else []
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 
     def save(self):
-        MEMORY_FILE.write_text(json.dumps({"facts": self.facts}, indent=1))
+        atomic_write_text(MEMORY_FILE, json.dumps({"facts": self.facts}, indent=1))
 
     def note(self, tool: str, args: dict, result: str):
         """Keep a short trace of a tool result; links are always kept in full."""
@@ -182,7 +186,8 @@ class Usage:
 
     def _read(self) -> dict:
         try:
-            return json.loads(USAGE_FILE.read_text())
+            d = json.loads(USAGE_FILE.read_text())
+            return d if isinstance(d, dict) else {}
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 
@@ -215,4 +220,7 @@ class Usage:
         d[key] = d.get(key, 0) + 1
         d[f"{key}:usd"] = round(d.get(f"{key}:usd", 0.0) + cost_usd, 4)
         d = {k: v for k, v in d.items() if k[:10] >= (dt.date.today() - dt.timedelta(days=40)).isoformat()}
-        USAGE_FILE.write_text(json.dumps(d, indent=1))
+        try:  # never lose Claude's answer over the counter (e.g. disk full); the old count stays on disk
+            atomic_write_text(USAGE_FILE, json.dumps(d, indent=1))
+        except OSError as e:
+            log.error("usage counter not saved: %s", e)

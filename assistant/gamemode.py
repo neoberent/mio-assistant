@@ -25,10 +25,17 @@ class GameMode:
         self.game = ""
 
     async def _game_window(self) -> str:
-        proc = await asyncio.create_subprocess_exec("niri", "msg", "-j", "windows",
-                                                    stdout=asyncio.subprocess.PIPE,
-                                                    stderr=asyncio.subprocess.DEVNULL)
-        out, _ = await proc.communicate()
+        try:
+            proc = await asyncio.create_subprocess_exec("niri", "msg", "-j", "windows",
+                                                        stdout=asyncio.subprocess.PIPE,
+                                                        stderr=asyncio.subprocess.DEVNULL)
+        except OSError:
+            return ""
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), 5)
+        except asyncio.TimeoutError:  # niri hung: assume no game rather than block game-mode detection
+            proc.kill()
+            return ""
         try:
             for w in json.loads(out):
                 if self.pattern.match(w.get("app_id") or ""):
