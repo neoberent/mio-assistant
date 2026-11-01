@@ -9,6 +9,10 @@ I wanted something that felt like part of the desktop instead of a chat window, 
 through API credits every time I asked for the volume to go down. So most of it runs locally, and the
 cloud model only gets the requests the local stack really can't handle.
 
+Here she is answering a few typed questions (sound on):
+
+https://github.com/user-attachments/assets/c3085c11-4aa6-4cf8-991f-5996b202ea71
+
 <table>
   <tr>
     <td><img src="docs/images/cachyos-news.png" alt="Mio reading out the latest CachyOS news in a speech bubble" width="100%"></td>
