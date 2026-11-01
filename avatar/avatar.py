@@ -35,6 +35,7 @@ RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
 SOCK = RUNTIME / "assistant-avatar.sock"
 DAEMON_SOCK = RUNTIME / "assistant.sock"
 STATE = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "assistant" / "avatar.json"
+FADE_MS = 480  # her fade-out in app.js (LEAVE_MS); the window unmaps once it's done
 
 
 def load_cfg() -> dict:
@@ -217,11 +218,17 @@ class Avatar(Gtk.Application):
         self.view.evaluate_javascript(code, -1, None, None, None, None, None)
 
     def show(self, game: bool = False):
-        arriving = not self.win.get_visible() or self.hiding
-        self.hide_seq += 1  # cancels a hide that is still waiting for its empty frame
+        want_stage = bool(self.cfg.get("stage", True)) and not game
+        # still fading out in the same layout: just turn around and fade back in, no fresh arrival
+        turn_around = self.hiding and self.win.get_visible() and want_stage == self.stage
+        arriving = not self.win.get_visible() or (self.hiding and not turn_around)
+        self.hide_seq += 1  # cancels a hide that is still fading out
         self.hiding = False
+        if turn_around:
+            self.js("avatar.setActive(true); avatar.unhide()")
+            return
         if arriving:  # pick the layout only on a fresh appearance; never jump while she's on screen
-            self.stage = bool(self.cfg.get("stage", True)) and not game
+            self.stage = want_stage
             mon = self._monitor(self.cfg.get("output"))
             if mon:
                 LayerShell.set_monitor(self.win, mon)
@@ -241,7 +248,7 @@ class Avatar(Gtk.Application):
             self.js("avatar.arrive()")
 
     def hide(self):
-        """Blank the page first, then unmap: the surface shows its last frame again on the next map."""
+        """Fade her out, end on an empty frame, then unmap: the surface shows its last frame again on the next map."""
         if not self.win.get_visible() or self.hiding:
             return
         self.hiding = True
@@ -254,9 +261,9 @@ class Avatar(Gtk.Application):
                 self.win.set_visible(False)
             return False
 
-        # give the compositor a moment to take the empty frame before the window goes away
+        # wait for the fade, plus a moment for the compositor to take the empty frame
         self.view.evaluate_javascript("avatar.hide()", -1, None, None, None,
-                                      lambda *_: GLib.timeout_add(120, unmap), None)
+                                      lambda *_: GLib.timeout_add(FADE_MS + 150, unmap), None)
 
     # ── messages from the page ──────────────────────────────────────────────
     def _on_js(self, _ucm, value):

@@ -15,10 +15,10 @@
     resolution: window.devicePixelRatio || 1, autoDensity: true,
   });
   document.body.appendChild(app.view);
-  app.ticker.maxFPS = 30; // plenty for an idle character; halves GPU use vs 60
+  app.ticker.maxFPS = 60; // stage: smooth; during a game (compact layout) layout() drops it to 30
 
   let model = null;
-  let mouth = 0, env = [], envFps = 30, envStart = 0;
+  let mouth = 0, env = [], envFps = 30, envStart = 0, mouthLast = 0;
   let bubbleTimer = null;
 
   // Fit by what is actually drawn, not the model's canvas: some models (yuri) have feet hanging below it.
@@ -258,13 +258,15 @@
     art = measureArt();
     fit();
     model.internalModel.on("beforeModelUpdate", () => {
+      const now = performance.now(), dt = Math.min(0.1, (now - (mouthLast || now)) / 1000);
+      mouthLast = now;
       let target = 0;
-      if (env.length) {
-        const i = Math.floor((performance.now() - envStart) / 1000 * envFps);
-        target = i < env.length ? env[i] : 0;
+      if (env.length) {  // interpolate between envelope samples instead of stepping at 30 fps
+        const f = (now - envStart) / 1000 * envFps, i = Math.floor(f), t = f - i;
         if (i >= env.length) env = [];
+        else target = env[i] + ((i + 1 < env.length ? env[i + 1] : 0) - env[i]) * t;
       }
-      mouth += (target - mouth) * 0.6;
+      mouth += (target - mouth) * (1 - Math.exp(-dt / 0.045));  // time-based, same feel at any frame rate
       const core = model.internalModel.coreModel;
       core.setParameterValueById("ParamMouthOpenY", mouth);
       applyEmotion(core);
@@ -354,10 +356,22 @@
   window.addEventListener("contextmenu", (e) => { e.preventDefault(); post({ t: "daemon", cmd: "hide" }); });
   window.addEventListener("wheel", (e) => post({ t: "scale", f: e.deltaY < 0 ? 1.08 : 1 / 1.08 }), { passive: true });
 
+  let swapTok = 0;
   function say(text) {
     if (!text) return;
-    bubble.textContent = text;
-    placeUi();
+    const tok = ++swapTok;
+    if (bubble.classList.contains("on") && bubble.textContent !== text) {  // next sentence: quick crossfade
+      bubble.classList.add("swap");
+      setTimeout(() => {
+        if (tok !== swapTok) return;
+        bubble.textContent = text; placeUi();
+        requestAnimationFrame(() => bubble.classList.remove("swap"));
+      }, 150);
+    } else {
+      bubble.classList.remove("swap");
+      bubble.textContent = text;
+      placeUi();
+    }
     bubble.classList.add("on");
     clearTimeout(bubbleTimer);
     bubbleTimer = setTimeout(() => bubble.classList.remove("on"), 4000 + text.length * 40);
@@ -377,7 +391,6 @@
   const statusEl = document.getElementById("status"), badge = document.getElementById("badge"), stext = document.getElementById("stext");
   const trail1 = document.getElementById("t1"), trail2 = document.getElementById("t2");
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const backOut = (k) => { const c = 1.7; return 1 + (c + 1) * Math.pow(k - 1, 3) + c * Math.pow(k - 1, 2); };
   const anim = (ms, f) => new Promise((r) => {
     const st = performance.now();
     const step = () => { const k = Math.min(1, (performance.now() - st) / ms); f(k); k < 1 ? requestAnimationFrame(step) : r(); };
@@ -400,30 +413,99 @@
     return s[k];
   }
 
+  const easeOut = (k) => 1 - Math.pow(1 - k, 3);
+  const easeInOut = (k) => k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+  let fadeTok = 0;  // a newer arrive/hide/unhide cancels the running one
+  // Live2D models ignore PIXI's partial alpha (only 0 = not drawn works), so fades run on the canvas opacity
+  let shown = 1;
+  function setShown(a) {
+    shown = Math.max(0, Math.min(1, a));
+    if (model) model.alpha = shown > 0.002 ? 1 : 0;
+    app.view.style.opacity = shown;
+  }
+
   async function arrive() {
-    if (!stage) { model.alpha = 1; lift = 0; fit(); return; }
-    model.alpha = 0; quiet = true;
+    const tok = ++fadeTok;
+    if (!stage) {  // compact (game) window: a quick fade, no stage effects
+      quiet = true; lift = 0;
+      await anim(300, (k) => { if (tok === fadeTok) { setShown(easeOut(k)); fit(); } });
+      if (tok === fadeTok) { setShown(1); quiet = false; fit(); }
+      return;
+    }
+    setShown(0); quiet = true;
     // the surface grows to the monitor only after it's mapped: wait for that before choosing a spot
     for (let i = 0; i < 60 && monitor.w && (innerWidth < monitor.w - 2 || innerHeight < monitor.h - 2); i++) await sleep(16);
     const [x, y] = pickSpot();
     frame = { x: Math.max(0, Math.min(innerWidth - box.w, x)), y: Math.max(0, Math.min(innerHeight - box.h, y)), w: box.w, h: box.h };
-    model.alpha = 0; quiet = true; lift = -80; fit(); placeUi();
-    if (glowEnabled) { glow.className = "arrive"; await sleep(380); }
-    await anim(650, (k) => { model.alpha = Math.min(1, k * 2.2); lift = -80 * (1 - backOut(k)); fit(); });
-    lift = 0; quiet = false; fit(); placeUi();
+    if (tok !== fadeTok) return;
+    setShown(0); quiet = true; lift = 0; fit(); placeUi();
+    if (glowEnabled) { glowArrive = true; glowTo("pink", 0.9, 550, true); await sleep(260); }
+    if (tok !== fadeTok) return;
+    await anim(650, (k) => { if (tok === fadeTok) setShown(easeInOut(k)); });  // just a fade, she doesn't move
+    if (tok !== fadeTok) return;
+    setShown(1); lift = 0; quiet = false; fit(); placeUi();
     if (drawn) burst(drawn.x + drawn.w / 2, drawn.y + drawn.h * 0.92, 14, 2.4);
-    setTimeout(() => { if (glow.className === "arrive") { glow.className = ""; setGlow(curState); } }, 500);
+    await sleep(250);
+    if (tok === fadeTok && glowArrive) { glowArrive = false; setGlow(curState, 1400); }  // the swell eases into her state
   }
 
-  // ── screen glow by state ──
-  let curState = "idle";
-  function setGlow(st) {
+  // ── leaving: everything fades together, then avatar.py unmaps the window (FADE_MS there must match) ──
+  const LEAVE_MS = 480;
+  async function leave() {
+    const tok = ++fadeTok;
+    quiet = true; glowArrive = false;
+    hideStatus(); bubble.classList.remove("on"); glowTo(null, 0, LEAVE_MS);
+    if (model) {
+      const a0 = shown, l0 = lift;
+      await anim(LEAVE_MS, (k) => {
+        if (tok !== fadeTok) return;
+        const e = easeInOut(k); setShown(a0 * (1 - e)); lift = l0 + (stage ? 14 * e : 0); fit();
+      });
+    }
+    if (tok !== fadeTok) return;
+    // the surface keeps its last frame and shows it again on the next map: leave it empty
+    if (model) { setShown(0); lift = 0; }
+    app.renderer.render(app.stage);
+    app.ticker.stop();
+  }
+  async function unhide() {  // shown again while still fading out: turn around instead of popping
+    const tok = ++fadeTok;
+    app.ticker.start();
+    setGlow(curState, 700);
+    if (!model) return;
+    const a0 = shown, l0 = lift;
+    await anim(380, (k) => {
+      if (tok !== fadeTok) return;
+      const e = easeOut(k); setShown(a0 + (1 - a0) * e); lift = l0 * (1 - e); fit();
+    });
+    if (tok === fadeTok) { setShown(1); lift = 0; quiet = false; fit(); placeUi(); }
+  }
+
+  // ── screen glow by state: one layer per colour, crossfaded ──
+  let curState = "idle", glowArrive = false, errorTimer = null;
+  const layers = Object.fromEntries([...glow.children].map((g) => [g.classList[1], g]));
+  const GLOW = { listening: ["pink", 0.5], thinking: ["blue", 0.75], thinking_hard: ["blue", 0.75], confirming: ["amber", 0.65] };
+  function glowTo(name, level, ms, still = false) {
+    glow.classList.toggle("still", still);
+    for (const [n, g] of Object.entries(layers)) {
+      g.style.transitionDuration = ms + "ms";
+      g.style.opacity = n === name ? level : 0;
+    }
+  }
+  function setGlow(st, ms = 900) {
     if (st !== "error") curState = st;
-    if (!stage || !glowEnabled) { glow.className = ""; return; }
-    if (glow.className === "arrive" && st === "listening") return;  // the arrival flash fades into it by itself
-    const cls = { listening: "listening", thinking: "thinking", thinking_hard: "thinking", confirming: "confirming", error: "error" }[st] || "";
-    glow.className = cls;
-    if (st === "error") setTimeout(() => { if (glow.className === "error") setGlow(curState); }, 1500);
+    if (!stage || !glowEnabled) { glowTo(null, 0, 0); return; }
+    if (glowArrive && st !== "error") return;  // the arrival swell eases into the current state by itself
+    clearTimeout(errorTimer);
+    layers.red.classList.remove("flick");
+    if (st === "error") {
+      void layers.red.offsetWidth; layers.red.classList.add("flick");
+      glowTo("red", 1, 200);
+      errorTimer = setTimeout(() => setGlow(curState, 1200), 1600);
+      return;
+    }
+    const [name, level] = GLOW[st] || [null, 0];
+    glowTo(name, level, ms);
   }
 
   // ── where the bubble and capsule go: beside her head, on the side facing the middle of the screen ──
@@ -477,6 +559,7 @@
     keys: svg('<rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M7.5 14h9"/>'),
     volume: svg('<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>'),
     chat: svg('<path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 3.5V17A2.5 2.5 0 0 1 4 14.5z"/>'),
+    shield: svg('<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.2-4.4"/>'),
     sparkle: svg('<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/>'),
   };
   const LOOKS = [  // tool name → icon + title (first match wins)
@@ -491,6 +574,7 @@
     [/^world_clock$/, "timer", "Checking the clock"], [/^timers?$/, "timer", "Setting a timer"],
     [/^install_updates$/, "package", "Installing updates"], [/^install_packages$/, "package", "Installing packages"],
     [/^(system_updates|check_install|package_info|packages)$/, "package", "Checking packages"],
+    [/^virus_scan$/, "shield", "Checking for viruses"], [/^quarantine$/, "shield", "Handling quarantine"],
     [/^arch_news$/, "news", "Reading the news"], [/^game_news$/, "news", "Reading the patch notes"],
     [/^game_price$/, "game", "Checking Steam prices"], [/^(launch_game|games|steam_library)$/, "game", "Starting your game"],
     [/^(system_health|system_info|system)$/, "system", "Checking your PC"],
@@ -587,22 +671,20 @@
       if (window.innerWidth >= mw) window.dispatchEvent(new Event("resize"));
     },
     setActive(on) { on ? app.ticker.start() : app.ticker.stop(); if (on) fit(); },
-    // avatar.py, before it unmaps the window: the surface keeps its last frame and shows it again on the next
-    // map, so draw an empty one first; otherwise she flashes at her old spot before arrive() fades her in.
-    hide() {
-      if (model) { model.alpha = 0; quiet = true; }
-      hideStatus(); glow.className = ""; bubble.classList.remove("on");
-      app.renderer.render(app.stage);
-      app.ticker.stop();
-    },
+    // avatar.py, before it unmaps the window: fade everything out and end on an empty frame (the surface shows
+    // its last frame again on the next map; otherwise she'd flash at her old spot before arrive() fades her in).
+    hide() { leave(); },
+    unhide() { unhide(); },
     layout(o) {  // avatar.py, before she appears: stage (full monitor) or compact (corner window)
       stage = !!o.stage; glowEnabled = o.glow !== false; home = o.home || null;
       fixed = o.fixed !== false; margins = o.margins || [40, 0];
       box = { w: o.w, h: o.h }; monitor = { w: o.mw || 0, h: o.mh || 0 };
       document.body.classList.toggle("stage", stage);
       frame = stage ? { x: 0, y: 0, w: o.w, h: o.h } : null;
-      if (stage && model) { model.alpha = 0; quiet = true; }  // stays invisible until arrive() fades her in
-      hideStatus(); glow.className = ""; bubble.classList.remove("on");
+      app.ticker.maxFPS = stage ? 60 : 30;  // the compact window runs next to a game: keep it light
+      ++fadeTok; glowArrive = false;
+      if (model) { setShown(0); lift = 0; quiet = true; }  // stays invisible until arrive() fades her in
+      hideStatus(); glowTo(null, 0, 0); bubble.classList.remove("on", "swap");
       placeUi();
     },
     arrive() { if (model) arrive(); else pendingArrive = true; },
