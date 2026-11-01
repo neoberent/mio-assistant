@@ -18,6 +18,7 @@
   app.ticker.maxFPS = 60; // stage: smooth; during a game (compact layout) layout() drops it to 30
 
   let model = null;
+  let voice = 0, voiceShown = 0;  // her voice level for the speaking glow, see voiceGlow()
   let mouth = 0, env = [], envFps = 30, envStart = 0, mouthLast = 0;
   let bubbleTimer = null;
 
@@ -269,6 +270,7 @@
       mouth += (target - mouth) * (1 - Math.exp(-dt / 0.045));  // time-based, same feel at any frame rate
       const core = model.internalModel.coreModel;
       core.setParameterValueById("ParamMouthOpenY", mouth);
+      voiceGlow(target, dt);
       applyEmotion(core);
     });
     if (pendingArrive) { pendingArrive = false; arrive(); }
@@ -356,25 +358,78 @@
   window.addEventListener("contextmenu", (e) => { e.preventDefault(); post({ t: "daemon", cmd: "hide" }); });
   window.addEventListener("wheel", (e) => post({ t: "scale", f: e.deltaY < 0 ? 1.08 : 1 / 1.08 }), { passive: true });
 
-  let swapTok = 0;
-  function say(text) {
+  // ── words appear as she says them ──
+  // There are no word timings from the TTS, but the lip-sync envelope says when she is actually making sound:
+  // each word gets a share of the voiced time by its length (plus a beat for punctuation), so pauses and
+  // the TTS's lead-in silence hold the next word back. All words are laid out from the start (invisible),
+  // so the bubble never grows while they appear.
+  function wordTimes(words, env, fps) {
+    const peak = Math.max(...env, 0);
+    if (!env.length || peak <= 0) return null;
+    const on = env.map((v) => v > peak * 0.12);
+    const voiced = on.reduce((n, v) => n + v, 0);
+    if (!voiced) return null;
+    const w = words.map((x) => x.length + 1 + (/[,;:]$/.test(x) ? 3 : /[.!?…]$/.test(x) ? 5 : 0));
+    const total = w.reduce((a, b) => a + b, 0);
+    const times = [];
+    let acc = 0, frame = 0, count = 0;
+    for (let i = 0; i < words.length; i++) {
+      const need = acc / total * voiced;  // voiced frames that pass before this word starts
+      while (frame < env.length && count + on[frame] <= need) { count += on[frame]; frame++; }
+      while (frame < env.length && !on[frame]) frame++;  // start on sound, not in a pause
+      times.push(Math.max(0, frame / fps * 1000 - 90));  // a touch early reads as in sync
+      acc += w[i];
+    }
+    return times;
+  }
+  let revealTok = 0;
+  function reveal(spans, times, start) {
+    const tok = ++revealTok;
+    let next = 0;
+    const step = () => {
+      if (tok !== revealTok) return;
+      const t = performance.now() - start;
+      while (next < spans.length && times[next] <= t) spans[next++].classList.add("on");
+      if (next < spans.length) requestAnimationFrame(step);
+    };
+    step();
+  }
+  function fill(text, timing) {
+    ++revealTok;
+    const words = text.split(/\s+/).filter(Boolean);
+    const times = timing && words.length > 1 && wordTimes(words, timing.env, timing.fps);
+    if (!times) { bubble.textContent = text; return; }
+    bubble.textContent = "";
+    const spans = words.map((x, i) => {
+      const sp = document.createElement("span");
+      sp.className = "w"; sp.textContent = x;
+      bubble.append(sp); if (i < words.length - 1) bubble.append(" ");
+      return sp;
+    });
+    reveal(spans, times, timing.start);
+  }
+
+  let swapTok = 0, bubbleText = "";
+  function say(text, timing = null) {
     if (!text) return;
     const tok = ++swapTok;
-    if (bubble.classList.contains("on") && bubble.textContent !== text) {  // next sentence: quick crossfade
+    if (bubble.classList.contains("on") && bubbleText !== text) {  // next sentence: quick crossfade
       bubble.classList.add("swap");
       setTimeout(() => {
         if (tok !== swapTok) return;
-        bubble.textContent = text; placeUi();
+        fill(text, timing); placeUi();
         requestAnimationFrame(() => bubble.classList.remove("swap"));
       }, 150);
     } else {
       bubble.classList.remove("swap");
-      bubble.textContent = text;
+      fill(text, timing);
       placeUi();
     }
+    bubbleText = text;
     bubble.classList.add("on");
     clearTimeout(bubbleTimer);
-    bubbleTimer = setTimeout(() => bubble.classList.remove("on"), 4000 + text.length * 40);
+    const ms = timing ? timing.env.length / timing.fps * 1000 : 0;
+    bubbleTimer = setTimeout(() => bubble.classList.remove("on"), Math.max(4000 + text.length * 40, ms + 2500));
   }
 
   function gesture() {
@@ -428,7 +483,7 @@
     const tok = ++fadeTok;
     if (!stage) {  // compact (game) window: a quick fade, no stage effects
       quiet = true; lift = 0;
-      await anim(300, (k) => { if (tok === fadeTok) { setShown(easeOut(k)); fit(); } });
+      await anim(200, (k) => { if (tok === fadeTok) { setShown(easeOut(k)); fit(); } });
       if (tok === fadeTok) { setShown(1); quiet = false; fit(); }
       return;
     }
@@ -439,13 +494,13 @@
     frame = { x: Math.max(0, Math.min(innerWidth - box.w, x)), y: Math.max(0, Math.min(innerHeight - box.h, y)), w: box.w, h: box.h };
     if (tok !== fadeTok) return;
     setShown(0); quiet = true; lift = 0; fit(); placeUi();
-    if (glowEnabled) { glowArrive = true; glowTo("pink", 0.9, 550, true); await sleep(260); }
+    if (glowEnabled) { glowArrive = true; glowTo("pink", 0.9, 300, true); await sleep(40); }
     if (tok !== fadeTok) return;
-    await anim(650, (k) => { if (tok === fadeTok) setShown(easeInOut(k)); });  // just a fade, she doesn't move
+    await anim(280, (k) => { if (tok === fadeTok) setShown(easeOut(k)); });  // just a fade, she doesn't move
     if (tok !== fadeTok) return;
     setShown(1); lift = 0; quiet = false; fit(); placeUi();
     if (drawn) burst(drawn.x + drawn.w / 2, drawn.y + drawn.h * 0.92, 14, 2.4);
-    await sleep(250);
+    await sleep(120);
     if (tok === fadeTok && glowArrive) { glowArrive = false; setGlow(curState, 1400); }  // the swell eases into her state
   }
 
@@ -484,13 +539,21 @@
   // ── screen glow by state: one layer per colour, crossfaded ──
   let curState = "idle", glowArrive = false, errorTimer = null;
   const layers = Object.fromEntries([...glow.children].map((g) => [g.classList[1], g]));
-  const GLOW = { listening: ["pink", 0.5], thinking: ["blue", 0.75], thinking_hard: ["blue", 0.75], confirming: ["amber", 0.65] };
+  const GLOW = { speaking: ["voice", 0.85], listening: ["pink", 0.5], thinking: ["blue", 0.75], thinking_hard: ["blue", 0.75], confirming: ["amber", 0.65] };
   function glowTo(name, level, ms, still = false) {
     glow.classList.toggle("still", still);
     for (const [n, g] of Object.entries(layers)) {
       g.style.transitionDuration = ms + "ms";
       g.style.opacity = n === name ? level : 0;
     }
+  }
+  // while she talks the glow swells with her voice: fast attack, slow release
+  function voiceGlow(target, dt) {
+    voice += (target - voice) * (1 - Math.exp(-dt / (target > voice ? 0.06 : 0.3)));
+    const v = Math.min(1, voice * 1.8);
+    if (Math.abs(v - voiceShown) < 0.01) return;
+    voiceShown = v;
+    layers.voice.style.setProperty("--v", (0.4 + 0.6 * v).toFixed(3));
   }
   function setGlow(st, ms = 900) {
     if (st !== "error") curState = st;
@@ -525,7 +588,7 @@
     trail2.style.cssText = `left:${statusRight ? tx - 4 : tx - 2}px;top:${headY + 46}px;width:6px;height:6px`;
     if (drawn.y > 120) {  // room above her head
       bubble.classList.remove("side", "left");
-      bubble.style.left = Math.max(170, Math.min(W - 170, cx)) + "px";
+      bubble.style.left = Math.max(190, Math.min(W - 190, cx)) + "px";
       bubble.style.top = (drawn.y - 14) + "px";
     } else {  // at the top of the screen: beside her, opposite the capsule
       bubble.classList.add("side"); bubble.classList.toggle("left", statusRight);
@@ -705,7 +768,7 @@
           env = msg.env || []; envFps = msg.fps || 30; envStart = performance.now();
           if (!bubble.classList.contains("on")) gesture();
           hideStatus();
-          say(msg.text);
+          say(msg.text, { env, fps: envFps, start: envStart });
           break;
         case "emotion":  // speech emotions linger a little after she finishes; state faces last until changed
           setEmotion(msg.name, ["happy", "sad", "worried", "surprised", "shy"].includes(msg.name) ? 6000 : 0);
@@ -714,6 +777,7 @@
         case "status":  // what she's doing right now; stays until she speaks
           if (stage) { showStatus(msg.tool, msg.text, msg.detail); break; }
           if (!msg.text) break;
+          ++revealTok; bubbleText = msg.text;
           bubble.textContent = msg.text;
           bubble.classList.add("on");
           clearTimeout(bubbleTimer);
