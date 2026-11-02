@@ -5,6 +5,7 @@ falling back to the clipboard, which usually still holds what was just pasted.
 """
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 import os
@@ -49,6 +50,41 @@ def _kitty_password() -> str | None:
         return None
 
 
+def _kitty_key(pid: int) -> str | None:
+    """A password-protected `kitty @` from outside kitty must encrypt with that kitty's public key, which only
+    its own shells have in their environment (KITTY_PUBLIC_KEY)."""
+    try:
+        kids = " ".join(f.read_text() for f in Path(f"/proc/{pid}/task").glob("*/children")).split()
+    except OSError:
+        return None
+    for kid in kids:
+        try:
+            env = Path(f"/proc/{kid}/environ").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        for kv in env:
+            if kv.startswith(b"KITTY_PUBLIC_KEY="):
+                return kv.split(b"=", 1)[1].decode()
+    return None
+
+
+async def _kitty_text(sock: Path, pw: str, key: str) -> str:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("KITTY_")}
+    env["KITTY_PUBLIC_KEY"] = key  # the key of the kitty we talk to, never one inherited from elsewhere
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "kitty", "@", "--to", f"unix:{sock}", "--password", pw, "get-text", "--match", "state:focused",
+            "--extent", "screen", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, env=env)
+    except OSError:
+        return ""
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), 5)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return ""
+    return out.decode(errors="replace") if proc.returncode == 0 else ""
+
+
 async def read_terminal() -> tuple[str, str]:
     """Returns (text, source)."""
     from .tools import sh
@@ -58,10 +94,10 @@ async def read_terminal() -> tuple[str, str]:
     if win.get("app_id") == "kitty" and win.get("pid"):
         sock = RUNTIME / f"kitty-{win['pid']}"
         pw = _kitty_password()
-        if sock.exists() and pw:
-            code, text = await sh("kitty", "@", "--to", f"unix:{sock}", "--password", pw, "get-text",
-                                  "--match", "state:focused", "--extent", "screen", limit=None)
-            if code == 0 and text.strip():
+        key = _kitty_key(win["pid"]) if sock.exists() and pw else None
+        if key:
+            text = await _kitty_text(sock, pw, key)
+            if text.strip():
                 return "\n".join(l for l in text.splitlines() if l.strip())[-4000:], "kitty"
     code, clip = await sh("wl-paste", "--no-newline", limit=None)
     if code == 0 and clip.strip():

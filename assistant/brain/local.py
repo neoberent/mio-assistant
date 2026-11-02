@@ -167,6 +167,17 @@ HINT = ("Speech recognition sometimes mishears words (names, games, channels). W
         "check'. Never answer with an empty message.")
 
 # a request with several parts: worth a quick check that every part got done
+# a tool result that means nothing happened, and a reply that says it did ("Restore it." → quarantine said
+# "nothing from the last scan can be quarantined", she said "All 2 files are restored", 2026-11-01)
+NOTHING_DONE = re.compile(r"^\W*(error|refused|the user declined|nothing|no |there'?s no|there is no|can'?t|"
+                          r"cannot|couldn'?t|could not|not found|unknown|invalid|failed|the \w+ is empty|"
+                          r"the \w+ isn'?t available)", re.I)
+CLAIMS_DONE = re.compile(r"\bI(?:'ve| have)? (?:just )?(?:opened|launched|started|installed|closed|moved|deleted|"
+                         r"created|sent|set|turned|switched|updated|played|killed|restored|removed|quarantined|"
+                         r"put|fixed|saved|renamed|copied|paused|muted|skipped|trusted|cleaned|emptied)\b|"
+                         r"\b(?:is|are|was|were|has been|have been) (?:now |all |successfully )*(?:restored|moved|"
+                         r"deleted|removed|quarantined|installed|closed|sent|opened|back|fixed|saved|done)\b|"
+                         r"^\W*(?:done|all done|there you go)\b", re.I)
 PARTS = re.compile(r"\b(and|then|also|after that|plus)\b|,", re.I)
 SPLIT = re.compile(r",\s*(?:and\s+)?(?:then\s+)?|\s+and\s+(?:then\s+|also\s+)?|\s+then\s+|\s+after that\s+|"
                    r"\s+plus\s+", re.I)
@@ -592,7 +603,7 @@ class LocalBrain:
         for c in skill["calls"]:
             key = f"{c['name']}:{json.dumps(c['args'], sort_keys=True)}"
             result = done[key] = await self.tools.call(c["name"], c["args"])
-            if NEVER_KEEP.match(result):
+            if NEVER_KEEP.match(result) or NOTHING_DONE.match(result):
                 raise RuntimeError(f"{c['name']} → {result[:80]}")
             messages.append({"role": "tool", "tool_name": c["name"], "content": result})
         msg = await self._chat(messages, None, False)
@@ -635,7 +646,8 @@ class LocalBrain:
         specs = self._tool_specs(names)
         known = set(t.name for t in self.tools.specs()) - HIDDEN
         used: list[str] = []
-        nudged = asked_answer = expanded = checked = englished = False
+        nudged = asked_answer = expanded = checked = englished = honest = False
+        results: list[str] = []
         think = think_first
         for _ in range(8):
             msg = await self._chat(messages, specs, think)
@@ -664,6 +676,18 @@ class LocalBrain:
                                           r"moved|deleted|created|sent|set|turned|switched|checked|updated|"
                                           r"played|killed|found)\b", reply, re.I):
                     raise Escalate("claimed an action without a tool call")
+                if results and all(NOTHING_DONE.match(r) for r in results) and CLAIMS_DONE.search(reply):
+                    if honest:  # said it twice: tell the truth from the tool itself, never a made-up success
+                        log.info("claimed success after failed tools, twice: %r", reply)
+                        return clean_reply("That didn't work: " + results[-1].removeprefix("error: ").rstrip(".") + ".")
+                    honest = True
+                    log.info("claimed success after failed tools: %r", reply)
+                    messages += [{"role": "assistant", "content": reply},
+                                 {"role": "user", "content": "That's not true: the tool result says it did NOT "
+                                                             f"happen (\"{results[-1][:200]}\"). If another tool "
+                                                             "does what I asked, call it now. Otherwise tell me "
+                                                             "honestly, in one sentence, that it didn't work and why."}]
+                    continue
                 announced = not chat and re.search(
                     r"\b(let me (check|look|open|find|search|get|see|try|pull)|(i'll|i will|i'm going to) (check|look|"
                     r"open|find|search|get|do|run|see|pull|start|launch|install)|one moment|give me a (sec|second|"
@@ -745,6 +769,7 @@ class LocalBrain:
                     log.info("local tool %s %s", name, args)
                     used.append(name)
                     result = done[key] = await self.tools.call(name, args)
+                    results.append(result)
                 messages.append({"role": "tool", "tool_name": name, "content": result})
         raise Escalate("too many steps")
 

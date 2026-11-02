@@ -13,6 +13,7 @@ import datetime as dt
 import difflib
 import json
 import logging
+import os
 import re
 
 from .config import STATE_DIR
@@ -25,15 +26,22 @@ KEEP_DAYS = 30
 SLOW_S = 8.0
 LOST = re.compile(r"got a bit lost|say it again|something went wrong|couldn'?t reach claude|can'?t do that one|"
                   r"what should i do exactly|i'?m not sure (what|how)|no usable results|web search failed", re.I)
-TOOL_FAILED = re.compile(r"^\W*(error|failed|couldn'?t|could not|can'?t|not found|no such|unknown|invalid|"
-                         r"no \w+ (is )?open)", re.I)
+# "Failed system services: none" is system_health's normal first line, not a failure
+TOOL_FAILED = re.compile(r"^\W*(error|failed(?![^\n:]*:\s*none\b)|couldn'?t|could not|can'?t|not found|no such|"
+                         r"unknown|invalid|nothing (?:from|to|called)|the \w+ is empty|no \w+ (is )?open)", re.I)
+# a greeting said twice isn't a repeat because she got it wrong, and "stop"/"shut up" are meant to get silence
+GREETING = re.compile(r"^\W*(hi|hello|hey|yo|heya|what'?s up|sup|how are you|how'?s it going|good (morning|"
+                      r"evening|night))\b", re.I)
+WANTS_SILENCE = re.compile(r"^\W*(stop|shut up|be quiet|quiet)\W*$", re.I)
 # said right after a reply: she got the last one wrong
 CORRECTED = re.compile(r"^\W*(no+\b|nope|wrong|not that|that'?s (wrong|not)|i said|i meant|i didn'?t (say|mean|ask)|"
                        r"you (misheard|got it wrong)|stop)", re.I)
 
 
 def log_request(text: str, reply: str, src: str, secs: float, voice: bool, trace: list[dict]):
-    """One line per finished request. Never raises."""
+    """One line per finished request. Never raises. Test runs of the daemon set MIO_TEST=1 so they stay out."""
+    if os.environ.get("MIO_TEST"):
+        return
     try:
         REQUESTS.parent.mkdir(parents=True, exist_ok=True)
         row = {"t": dt.datetime.now().isoformat(timespec="seconds"), "text": text[:300], "reply": (reply or "")[:300],
@@ -74,7 +82,7 @@ def problems(rows: list[dict]) -> list[tuple[dict, list[str]]]:
         why = []
         nxt = rows[i + 1] if i + 1 < len(rows) else None
         close = nxt and (dt.datetime.fromisoformat(nxt["t"]) - dt.datetime.fromisoformat(r["t"])).total_seconds() < 120
-        if not r.get("reply"):
+        if not r.get("reply") and not WANTS_SILENCE.match(r["text"]):
             why.append("said nothing")
         elif LOST.search(r["reply"]):
             why.append("got lost")
@@ -88,7 +96,7 @@ def problems(rows: list[dict]) -> list[tuple[dict, list[str]]]:
             why.append("tool failed: " + ", ".join(dict.fromkeys(failed)))
         if close and CORRECTED.search(nxt["text"]):
             why.append(f"you corrected her: “{nxt['text'][:60]}”")
-        elif close and r.get("src") != "ask" and difflib.SequenceMatcher(
+        elif close and r.get("src") != "ask" and not GREETING.match(r["text"]) and difflib.SequenceMatcher(
                 None, r["text"].lower(), nxt["text"].lower()).ratio() > 0.75 and len(r["text"]) > 8:
             why.append("you had to say it again")
         if why:

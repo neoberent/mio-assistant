@@ -303,8 +303,10 @@ async def handle(text: str, tools: ToolBox, usage=None, last_reply: str = "") ->
     if not t:
         return Result("", "stop")
 
-    if re.fullmatch(r"(stop|cancel|never ?mind|nothing|shut up|be quiet|quiet)", t):
+    if re.fullmatch(r"(stop|shut up|be quiet|quiet)", t):
         return Result("", "stop")
+    if re.fullmatch(r"(?:oh,? )?(?:cancel(?: that| it)?|never ?mind|nothing|forget it)", t):
+        return Result(random.choice(["Okay!", "Alright!", "Okay, no problem!"]), "hide")  # not silence: a nod, then away
     # "open it" / "play the first one" point at something from just before: the model has that context, the
     # app matcher doesn't ("it" → Orbit)
     if re.fullmatch(r"(?:open|launch|start|run|play|show me|pull up|watch) (?:it|them|that|this|those|these|"

@@ -19,7 +19,7 @@ STOP = re.compile(r"\b(stop|cancel|abort|end)\b")
 RESULTS = re.compile(r"\b(what did (?:you|it|the scan) find|results?|what (?:was|is) (?:found|wrong)|"
                      r"what did you see|tell me (?:again|more)|which (?:ones?|files?))\b")
 REPORT = re.compile(r"\b(open|show)\b.*\breport\b")
-RESTORE = re.compile(r"\b(restore|bring back|put back|un-?quarantine)\b")
+RESTORE = re.compile(r"\b(restore|bring back|put back|un-?quarantine)\b|\b(?:put|bring) (?:it|them|those|that|this|the files?) back\b")
 YES = re.compile(r"^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|do it|go ahead|go for it|of course|absolutely)"
                  r"(?:[ ,]+(?:please|do it|go ahead|thanks?|thank you|sure|yes))*$|"
                  r"^(?:(?:yes|yeah|ok(?:ay)?),? )?(?:please )?(?:quarantine|remove|get rid of|delete|kill|disable|"
@@ -102,7 +102,8 @@ async def _handle(t: str, tools, scanner):
     threat = THREAT.search(t)
     about_scan = threat or SCAN_WORD.search(t)
     if not about_scan:
-        if RESTORE.search(t) and re.search(r"\bquarantine", t):
+        if RESTORE.search(t) and (re.search(r"\bquarantine", t) or _just_quarantined(t)):
+            # she tells them to say "restore it" right after quarantining: that must work without more words
             return Result(_cap(await tools.call("virus_scan", {"action": "restore", "items": _name(t)})) + ".")
         return None
     if REPORT.search(t):
@@ -148,10 +149,30 @@ def _started(r: str, quick: bool) -> str:
 
 
 def _name(t: str) -> str:
+    if re.search(r"\b(?:put|bring) (?:it|them|those|that|this|the files?) back\b", t):
+        return "last"
     m = re.search(r"\b(?:restore|bring back|put back)\s+(?:the\s+)?(.+?)(?:\s+from (?:the )?quarantine)?$", t)
     name = (m[1] if m else "").strip()
     return "last" if not name or re.fullmatch(r"(it|that|this|them|the file|file|last one|the last one)", name) \
         else ("all" if re.fullmatch(r"(all|everything|all of them|them all)", name) else name)
+
+
+def _just_quarantined(t: str) -> bool:
+    """A short "restore it / put them back" within an hour of her last quarantine."""
+    import datetime as dt
+
+    if len(t.split()) > 6 or not re.search(r"\b(?:restore|bring back|put back)\s+(?:it|that|this|them|those|"
+                                           r"(?:the )?files?|everything|all(?: of them)?)\b|"
+                                           r"\b(?:put|bring) (?:it|them|those|that|this|the files?) back\b", t):
+        return False
+    items = vs.quarantined()
+    if not items:
+        return False
+    try:
+        last = dt.datetime.fromisoformat(items[-1][1].get("t", ""))
+    except ValueError:
+        return False
+    return (dt.datetime.now() - last).total_seconds() < 3600
 
 
 def _when(t: str) -> str:

@@ -399,7 +399,8 @@ READ_ONLY = {"system_info", "system_health", "weather", "web_research", "wikiped
              "game_news", "game_price", "package_info", "arch_news", "search_my_setup", "system_updates",
              "list_windows", "screen", "browser_page", "browser_history", "list_files", "find_files", "read_file",
              "read_link", "check_install", "routine"}
-NEVER_KEEP = re.compile(r"^(error|refused|the user declined|no |nothing found|web search failed|unknown|"
+NEVER_KEEP = re.compile(r"^(error|refused|the user declined|no |nothing (?:found|from|to|called)|couldn'?t |could not|"
+                        r"the \w+ is empty|web search failed|unknown|"
                         r"there is no tool)", re.I)
 
 

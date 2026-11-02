@@ -708,8 +708,8 @@ def restore(name: str = "") -> str:
         return "the quarantine is empty"
     if name and name not in ("last", "all"):
         items = [i for i in items if name.lower() in i[1]["path"].lower()] or []
-    elif name != "all":
-        items = items[-1:]
+    elif name != "all":  # "restore it" right after "quarantine all 2": the whole last batch comes back
+        items = [i for i in items if i[1].get("t") == items[-1][1].get("t")]
     if not items:
         return f"nothing called {name} in the quarantine"
     done = []

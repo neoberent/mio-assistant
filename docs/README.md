@@ -106,7 +106,7 @@ listen_on unix:${XDG_RUNTIME_DIR}/kitty-{kitty_pid}
 ```
 
 The password only permits `get-text` and `ls`, so nothing that connects to the socket can type
-into or control your terminal. The assistant reads the password from `kitty.conf` itself.
+into or control your terminal. The assistant reads the password from `kitty.conf` itself, and the focused kitty's public key from its shell's environment (password mode needs it). Only kitty windows opened after the change can be read.
 Terminal text only leaves your PC if the request escalates to Claude.
 
 ## Startup
