@@ -113,6 +113,12 @@ class WakeWord:
                 log.warning("microphone error (%s), retrying in %ss", e, delay)
                 self._stop.wait(delay)
                 delay = min(delay * 2, 60)
+            except Exception as e:  # e.g. CUDA out of memory while a dream trains: keep her ears alive
+                if self._stop.is_set():
+                    break
+                log.warning("hearing hiccup (%s: %s), retrying in %ss", type(e).__name__, e, delay)
+                self._stop.wait(delay)
+                delay = min(delay * 2, 60)
 
     def _listen_whisper(self):
         from .audio import BLOCK, SR, _Vad

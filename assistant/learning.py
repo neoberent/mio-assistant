@@ -21,6 +21,7 @@ import difflib
 import json
 import logging
 import math
+import os
 import re
 import sqlite3
 import time
@@ -36,6 +37,7 @@ log = logging.getLogger("learning")
 
 LEXICON_FILE = STATE_DIR / "lexicon.json"
 SKILLS_FILE = STATE_DIR / "skills.json"
+NEGATIVES_FILE = STATE_DIR / "negatives.jsonl"  # what she did when told "no, that's wrong" (dream: don't do this)
 BRAVE_HISTORY = [Path.home() / ".config/BraveSoftware/Brave-Origin/Default/History",
                  Path.home() / ".config/BraveSoftware/Brave-Browser/Default/History"]
 
@@ -605,6 +607,7 @@ class Learning:
             return
         answering = self.last_reply.rstrip().endswith("?")  # "no" to her question isn't a complaint
         if NEGATIVE.search(text) and self.last_skill and not answering:
+            self._remember_mistake(self.last_skill)
             self.skills.forget(self.last_skill["id"])
             self.last_skill = None
         if (m := CORRECTION.search(text)) and self.last_text and not answering:
@@ -619,6 +622,19 @@ class Learning:
                 s, heard = max(scored)
                 if 0.45 <= s < 1 and len(meant) <= 40:
                     self.lexicon.learn_fix(heard.strip(".,!?"), meant)
+
+    @staticmethod
+    def _remember_mistake(skill: dict):
+        """Kept for the dream: once the same request works later, this becomes a 'not like this' example."""
+        if os.environ.get("MIO_TEST"):  # test runs stay out of her real records
+            return
+        try:
+            with NEGATIVES_FILE.open("a") as f:
+                f.write(json.dumps({"t": dt.datetime.now().isoformat(timespec="seconds"), "text": skill["text"],
+                                    "calls": [{"name": c["name"], "args": c["args"]} for c in skill["calls"]]},
+                                   ensure_ascii=False) + "\n")
+        except OSError as e:
+            log.warning("mistake not kept: %s", e)
 
     async def learned(self, text: str) -> tuple[list[dict], dict | None]:
         """→ (examples of what worked for similar requests, a skill to replay directly or None)."""

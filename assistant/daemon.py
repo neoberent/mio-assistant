@@ -916,6 +916,8 @@ class Assistant:
             summary, rows = self.escalation_report(int(req.get("days") or 7))
             return {"summary": summary, "items": rows[-30:]}
         elif cmd == "dream" and self.dreamer:  # start one now (for testing): `assistant dream`
+            if self.gaming:
+                return {"result": "not while a game is running"}
             if self.dreamer.proc is None:
                 spawn(self.dreamer.dream(dry=bool(req.get("dry"))))
             return {"result": "dreaming (see ~/.local/share/assistant/dream/train.log)"}

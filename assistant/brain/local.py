@@ -26,68 +26,89 @@ ESCALATE = "ask_claude"
 # category → (trigger regex, tools)
 CATEGORIES: dict[str, tuple[str, list[str]]] = {
     # first: its words are specific, and topics after them ("…that i like lofi music") would fill MAX_TOOLS
-    "memory": (r"\b(remember|note|don'?t forget|keep in mind)\b", ["remember", "notify"]),
+    "memory": (r"\b(remember|rember|remmber|note|don'?t forget|keep in mind|call me|my name is|i prefer)\b", ["remember", "notify"]),
     "music": (r"\b(music|songs?|tracks?|lofi|playlists?|riff|album|artist|singer|band|listen(ing)? to|put on|"
-              r"liked songs|my wave|shuffle|hear|in the mood for)\b", ["riff", "media", "volume"]),
-    "youtube": (r"\b(youtube|yt|video|channel|youtuber|stream)\b",
+              r"liked songs|my wave|shuffle|hear|in the mood for|sings?|singing|unlike|like this( one| song)?|"
+              r"previous|unpause|resume|keep it going)\b", ["riff", "media", "volume"]),
+    "youtube": (r"\b(youtube|yt|video|vids?|channel|youtuber|stream|skip (ahead|forward|the ad|this ad|it)|ad|ads|"
+                r"rewind|go (back|forward) \w+|speed( it)? up|slow it down|normal speed|double speed|jump to|"
+                r"minute mark|seconds)\b",
                 ["youtube_play", "browser_video", "search_site"]),
     "browser": (r"\b(page|article|site|website|tab|browser|brave|video|click|scroll|history|visited|"
-                r"looked at|summari[sz]e|reading|watching|first (result|link|one)|this (page|video|article|post))\b",
+                r"looked at|summari[sz]e|reading|watching|first (result|link|one)|this (page|video|article|post)|"
+                r"scroll|scrol|go to the top|selected|tldr|button|sign in|visit|visited|bring it back)\b",
                 ["browser_page", "browser_video", "browser_tabs", "browser_click", "type_text", "browser_scroll",
                  "browser_history", "search_site", "open_best_match"]),
     "apps": (r"\b(open|launch|start|run|close|focus|switch|window|workspace|app|fullscreen|overview|monitor|"
-             r"screenshot|float|maximi[sz]e|type|running)\b",
+             r"screenshot|float|maximi[sz]e|type|running|column|width|center|ws \d|screen off|pull up|bring up)\b",
              ["launch_app", "open", "list_windows", "focus_window", "niri_action", "type_text"]),
     "games": (r"\b(game|games|play|roblox|sober|froststrap|steam|launch|patch|patch ?notes|sale|deals?|"
-              r"wishlist|discount|price|cost|clip|replay|record)\b",
+              r"wishlist|discount|price|cost|cheap|clip|replay|record|gameplay|fire up|season|update notes|"
+              r"dota|elden ring|counter[ -]?strike|marvel rivals|call of duty|modern warfare)\b",
               ["launch_game", "steam_library", "game_news", "game_price", "clip"]),
-    "phone": (r"\b(phone|iphone|mobile|handy)\b", ["phone", "clipboard"]),
-    "media": (r"\b(volume|louder|quieter|mute|music|song|track|play|pause|skip|spotify|playing)\b",
+    "phone": (r"\b(phone|fone|iphone|mobile|handy)\b", ["phone", "clipboard"]),
+    "media": (r"\b(volume|vol|volum|louder|quieter|loud|quiet|sound|mute|silence|shh+|notch|crank( it)?|"
+              r"turn it (up|down)|bump it|music|song|track|play|pause|resume|skip|spotify|playing)\b",
               ["volume", "media", "riff"]),
     "desktop": (r"\b(night ?light|do not disturb|dnd|wallpaper|theme|dark mode|light mode|bluetooth|wi-?fi|"
-                r"caffeine|control cent(er|re)|panel|launcher|noctalia|bar|dock|notification)\b",
+                r"caffeine|control cent(er|re)|panel|launcher|noctalia|bar|dock|notifications?|notifs?|"
+                r"nite ?light|night ?lite|warmer|power (mode|saver)|performance mode|balanced|battery saver|"
+                r"quick settings|screen awake|background|bt)\b",
                 ["shell_panel", "notify"]),
     "web": (r"\b(search|look ?up|google|find out|internet|online|web|news|latest|newest|release|when (is|does|will)|"
-            r"who (is|was)|price|cost|review|link|url|website|site|page|github|youtube|reddit)\b",
+            r"who (is|was)|price|cost|review|link|url|website|site|page|github|youtube|reddit|"
+            r"is \w+ down|down (rn|right now)|status|score|forums?)\b",
             ["web_research", "read_link", "read_clipboard_link", "open", "open_best_match", "search_site"]),
     "screen": (r"\b(screen|this|window|terminal|error|clipboard|copied|pasted|reading|says|see|look|picture|"
-               r"image|showing)\b",
+               r"image|showing|pic|popup|crash|crashed|character|colou?r|wrong here|what am i (playing|in)|"
+               r"which game|last command|text editor|what did i copy)\b",
                ["screen", "clipboard", "read_clipboard_link"]),
     "security": (r"\b(virus(es)?|malware|trojans?|spyware|rootkits?|infected|hacked|antivirus|scan|scanning|"
-                 r"quarantine|quarantined)\b", ["virus_scan", "quarantine"]),
-    "packages": (r"\b(package|install|update|upgrade|uninstall|remove|aur|paru|yay|pacman|safe|trust|pkgbuild|"
-                 r"arch news|cachyos|kernel|driver|outdated|up to date)\b",
+                 r"quarantine|quarantined|quarentine|trust|restore|false positive|anything bad|get rid of|nuke|"
+                 r"number (one|two|three|four|five|six|\d)|#\d|put (it|the \w+ file) back)\b",
+                 ["virus_scan", "quarantine"]),
+    "packages": (r"\b(package|install|installl|instal|update|upgrade|uninstall|remove|aur|paru|yay|pacman|safe|"
+                 r"trust|pkgbuild|arch news|cachyos|cachy|iso|kernel|driver|outdated|up to date|sketchy|version)\b",
                  ["package_info", "check_install", "system_updates", "install_updates", "install_packages",
                   "arch_news"]),
-    "knowledge": (r"\b(wiki|wikipedia|arch ?wiki|how (do|can|to)|what is|what are|explain|meaning)\b",
+    "knowledge": (r"\b(wiki|wikipedia|arch ?wiki|how (do|can|to)|how2|what is|what are|what'?s an?|explain|meaning|"
+                  r"who (invented|founded|made|was|is)|whos|tell me (about|bout)|history of|how tall|when did|"
+                  r"what'?s the deal with)\b",
                   ["arch_wiki", "wikipedia", "web_research", "search_my_setup"]),
     "setup": (r"\b(my (config|setup|shortcut|keybind|bind|hotkey|alias|function)|shortcut|keybind|hotkey|"
               r"config|settings?|your (voice|name|settings)|mio|kitty|niri|fish)\b",
               ["search_my_setup"]),
-    "system": (r"\b(health|temperature|temp|hot|cpu|gpu|ram|memory|disk|space|uptime|load|failed|errors?|"
-               r"fans?|sensors?)\b",
+    "system": (r"\b(health|temperature|temp|temps|hot|overheating|cpu|gpu|ram|vram|memory|disk|ssd|space|uptime|load|"
+               r"failed|errors?|fans?|sensors?|slow|laggy|hogging|eating|been on|wrong with|broken|"
+               r"pc (ok|fine|okay))\b",
                ["system_health", "system_info", "run_shell"]),
     "shell": (r"\b(command|run|kill|process|service|ip|network|ping|internet|connection|git|how many|how big|"
               r"size|biggest|largest|version|installed|usb|mount|drive|battery|bluetooth device|port|log|journal|"
               r"restart|uptime|wifi|ethernet|lock|sleep|suspend|shut ?down|reboot|log ?out)\b",
               ["run_shell"]),
     "files": (r"\b(files?|folders?|directory|downloads|documents|pictures|music|videos|desktop|pdf|photo|image|"
-              r"screenshot|tidy|clean up|organi[sz]e|sort|trash|delete|rename|move)\b",
+              r"screenshot|tidy|clean up|organi[sz]e|sort|trash|delete|rename|move|downloaded|download|"
+              r"installers?|zips?|archives?|mp3s?|resume|cv|invoice|ppt|backup|named|recorded)\b",
               ["find_files", "list_files", "open", "tidy_downloads", "move_file", "trash"]),
-    "keys": (r"\b(press|shortcut|hotkey|keys?|ctrl|control|alt|enter|escape|tab|type)\b",
+    "keys": (r"\b(press|hit|shortcut|hotkey|keys?|ctrl|control|alt|enter|escape|tab|type|refresh|reload|f5|copy|"
+             r"paste|undo|redo|select (all|everything)|zoom|save (it|the file)|quick ?switcher|find on page|"
+             r"go back)\b",
              ["press_keys", "focus_window", "type_text"]),
-    "discord": (r"\b(discord|dm|dms|server|channel|message|text (him|her|them)|tell (him|her|them)|tell \w+ (that|on))\b",
+    "discord": (r"\b(discord|dm|dms|server|channel|message|chat|text (him|her|them)|tell (him|her|them)|"
+                r"send (him|her|them)|tell \w+ (that|on|to))\b",
                 ["discord", "focus_window"]),
-    "routines": (r"\b(routines?|when i say|whenever i say|every time i say)\b", ["routine"]),
+    "routines": (r"\b(routines?|when i say|whenever i say|every time i say|bedtime|focus mode|game ?time|"
+                 r"gaming time)\b", ["routine"]),
     "misc": (r"\b(weather|rain|umbrella|snow|sunny|cold|warm|jacket|temperature outside|forecast|time|date|clock)\b",
              ["weather", "world_clock"]),
-    "timers": (r"\b(timers?|remind(er)?s?|alarms?|wake me|minutes?|hours?|left|later|tomorrow|tonight)\b",
+    "timers": (r"\b(timers?|remind(er)?s?|remindr|alarms?|wake me|minutes?|hours?|left|later|tomorrow|tonight|"
+               r"cancel)\b",
                ["timer"]),
 }
 # merged into one clear tool each for her (Claude still gets all of them): screen, type_text
 HIDDEN = set(ALIASES)
 DEFAULT_TOOLS = ["web_research", "open", "launch_app", "run_shell", "search_my_setup", "weather"]
-MAX_TOOLS = 10
+MAX_TOOLS = 12
 # the second, deeper attempt also gets these
 DEEP_TOOLS = ["run_shell", "web_research", "browser_page", "open"]
 
