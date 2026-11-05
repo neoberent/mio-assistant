@@ -180,7 +180,7 @@ unprompted so the prompt can't make her hear her name in noise. `model = "small.
 
 All of this runs on the CPU (or, for dreaming, only while you're away), so games aren't affected.
 
-- **Names she knows.** App names, games, YouTube channels from Brave's history ("Jordan & Semih Live" also
+- **Names she knows.** App names, games, YouTube channels from Zen's history ("Jordan & Semih Live" also
   teaches "Jordan & Semih") and names her tools find (the channel of a video she opened). The most used ones
   are added to Whisper's vocabulary prompt.
 - **Sound-alike fixes.** After Whisper, words it doesn't know as whole words are matched against those names
@@ -235,7 +235,7 @@ All of this runs on the CPU (or, for dreaming, only while you're away), so games
 - **One clear tool per job.** The local model gets one `screen` tool instead of read_screen / see_screen /
   terminal_text / look_at_screen: it reads the focused window's text (exact text for kitty, OCR otherwise) and,
   for visual questions or windows with little text, also asks her local eyes. `type_text` types into the
-  browser's field when Brave is focused, else with the keyboard, and `submit=true` presses Enter. `launch_app`
+  browser's field when a browser is focused, else with the keyboard, and `submit=true` presses Enter. `launch_app`
   and `launch_game` hand over to each other ("open roblox"). Claude still sees every original tool. Old
   learned requests are read with the new names (`ALIASES` in learning.py).
 - **Knowing what's going on.** Each request gets a "Right now" line (~10 ms, two local commands): focused
@@ -486,15 +486,22 @@ snapshot from the install step: `snapper -c root list` → `sudo snapper -c root
   "is anything on my wishlist on sale?" (the wishlist must be public: Steam → Privacy → Game details). Euro
   prices from Steam's public APIs, no key.
 
-## Browser extension (Brave Origin)
+## Browser extension (Zen, Chromium)
 
 `browser/extension` is a small MV3 extension (her chibi icon, popup in her pink/mauve) that lets Mio read and
-drive the browser. It talks only to `bin/mio-browser-host`, a native-messaging bridge Brave starts itself,
+drive the browser. It talks only to `bin/mio-browser-host`, a native-messaging bridge the browser starts itself,
 which exposes `$XDG_RUNTIME_DIR/mio-browser.sock` (0600) to the daemon. Nothing leaves the PC.
 
-Install: `scripts/install_browser.sh` (registers the host for Brave Origin/Brave/Chromium/Chrome), then
-brave://extensions → Developer mode → Load unpacked → `browser/extension`, and pin it. The extension id is
-fixed (`hmjgoilonpblpoamhakkijgoedphnaim`) by the `key` in its manifest, so the host only accepts it.
+Install: run `scripts/install_browser.sh`. It registers the host for Zen, Chromium and Chrome and builds the
+add-on, then:
+
+- **Zen** (web links open here by default): the add-on isn't signed, so set `xpinstall.signatures.required` to
+  `false` in about:config, then about:addons → gear menu → Install Add-on From File → `~/.cache/assistant/mio.xpi`.
+  Zen's Firefox engine runs it as an event page; `scripts/build_xpi.py` makes that change in the add-on's copy of
+  the manifest and sets the id the host accepts (`ADDON_ID` in `install_browser.sh`). Run the script and install
+  the add-on again after changing the extension.
+- **Chromium / Chrome**: chrome://extensions → Developer mode → Load unpacked → `browser/extension`, and pin it.
+  The id is fixed (`hmjgoilonpblpoamhakkijgoedphnaim`) by the `key` in its manifest, so the host only accepts it.
 
 - **Video**: "skip the ad", "2x speed" / "normal speed", "skip ahead 2 minutes", "go back 30 seconds",
   "next video", "what's this video about?" (transcript via `yt-dlp`, summarized by the local model; a video without

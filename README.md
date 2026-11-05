@@ -62,7 +62,7 @@ The parts I put the most work into:
 - **The avatar.** On Wayland a normal window can't stay on top of every workspace and be click-through,
   so the avatar is a GTK4 layer-shell overlay with WebKit rendering a Live2D model (pixi.js). Clicks go
   through everywhere except on her.
-- **Browser extension.** A small Brave/Chromium extension plus a native-messaging bridge, so she can read
+- **Browser extension.** A small Zen/Chromium extension plus a native-messaging bridge, so she can read
   pages, control videos, switch tabs and click results. Banking, payment and login pages are off-limits,
   and she never types into password fields.
 - **Safety.** Every tool call goes through one permission gate and an audit log. Shell commands are
