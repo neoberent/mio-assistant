@@ -220,7 +220,7 @@ def stub(a):
         async def fn(_f=f, **k): return _f(**k)
         t.fn = fn
     async def right_now():  # the same pretend desktop every run, so grades don't depend on what's open
-        return ("Right now — focused window: brave-origin — YouTube; Discord chat open: Alex; "
+        return ("Right now — focused window: zen — YouTube; Discord chat open: Alex; "
                 "media playing: Lofi Girl — lofi hip hop radio.")
     a._right_now = right_now
 

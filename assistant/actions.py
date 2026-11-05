@@ -60,7 +60,7 @@ def register(box):
 
     @box._add("press_keys", "Press keyboard keys/shortcuts, e.g. 'ctrl+k', 'enter', 'ctrl+shift+t', 'alt+f4'; "
               "several combos separated by spaces are pressed in order ('ctrl+a backspace'). app = the window to "
-              "focus first (e.g. 'kitty', 'brave', 'discord'); without it the keys go to the focused window.",
+              "focus first (e.g. 'kitty', 'zen', 'discord'); without it the keys go to the focused window.",
               {"keys": S, "app": S}, ["keys"])
     async def press_keys(keys: str, app: str = "") -> str:
         if app:

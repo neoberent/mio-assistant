@@ -38,8 +38,7 @@ log = logging.getLogger("learning")
 LEXICON_FILE = STATE_DIR / "lexicon.json"
 SKILLS_FILE = STATE_DIR / "skills.json"
 NEGATIVES_FILE = STATE_DIR / "negatives.jsonl"  # what she did when told "no, that's wrong" (dream: don't do this)
-BRAVE_HISTORY = [Path.home() / ".config/BraveSoftware/Brave-Origin/Default/History",
-                 Path.home() / ".config/BraveSoftware/Brave-Browser/Default/History"]
+ZEN_HISTORY = ".zen/*/places.sqlite"
 
 MAX_NAMES = 400
 MAX_WORDS = 3000
@@ -201,12 +200,12 @@ class Lexicon:
     def _sites() -> list[tuple[str, int]]:
         """Sites the user visits a lot, by name ("modrinth.com" → Modrinth). Only host names, never what was
         searched or read there."""
-        db = next((p for p in BRAVE_HISTORY if p.exists()), None)
+        db = next(Path.home().glob(ZEN_HISTORY), None)
         if not db:
             return []
         try:
             con = sqlite3.connect(f"file:{db}?immutable=1", uri=True)
-            rows = con.execute("SELECT url, visit_count FROM urls ORDER BY visit_count DESC LIMIT 3000").fetchall()
+            rows = con.execute("SELECT url, visit_count FROM moz_places ORDER BY visit_count DESC LIMIT 3000").fetchall()
             con.close()
         except sqlite3.Error as e:
             log.debug("history: %s", e)
@@ -224,13 +223,13 @@ class Lexicon:
 
     @staticmethod
     def _youtube_channels() -> list[tuple[str, int]]:
-        db = next((p for p in BRAVE_HISTORY if p.exists()), None)
+        db = next(Path.home().glob(ZEN_HISTORY), None)
         if not db:
             return []
-        try:  # immutable: reads the file as is, even while Brave holds its lock
+        try:  # immutable: reads the file as is, even while Zen holds its lock
             con = sqlite3.connect(f"file:{db}?immutable=1", uri=True)
-            rows = con.execute("SELECT title, visit_count FROM urls WHERE url LIKE 'https://www.youtube.com/@%' "
-                               "AND title LIKE '% - YouTube' ORDER BY last_visit_time DESC LIMIT 200").fetchall()
+            rows = con.execute("SELECT title, visit_count FROM moz_places WHERE url LIKE 'https://www.youtube.com/@%' "
+                               "AND title LIKE '% - YouTube' ORDER BY last_visit_date DESC LIMIT 200").fetchall()
             con.close()
         except sqlite3.Error as e:
             log.debug("history: %s", e)

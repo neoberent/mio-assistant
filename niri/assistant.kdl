@@ -4,7 +4,7 @@ binds {
     Mod+A repeat=false hotkey-overlay-title="Assistant: talk" { spawn "~/.local/bin/assistant" "ptt"; }
     // Keep the character on screen / let it auto-hide
     Mod+Shift+A repeat=false hotkey-overlay-title="Assistant: show/hide character" { spawn "~/.local/bin/assistant" "toggle"; }
-    // Shut up immediately
+    // Shut up immediately (also drops a request she is still thinking about)
     Mod+Ctrl+A repeat=false hotkey-overlay-title="Assistant: stop" { spawn "~/.local/bin/assistant" "stop"; }
     // Instant replay: save the last 30 s of gameplay to ~/Videos/Clips (like ShadowPlay)
     Alt+F10 repeat=false hotkey-overlay-title="Assistant: clip that" { spawn "~/.local/bin/assistant" "clip"; }

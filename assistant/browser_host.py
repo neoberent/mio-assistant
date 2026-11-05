@@ -1,4 +1,4 @@
-"""Native messaging host for Mio's browser extension. Stdlib only; Brave starts it for the extension.
+"""Native messaging host for Mio's browser extension. Stdlib only; the browser starts it for the extension.
 
   extension ⇄ (stdin/stdout, length-prefixed JSON) ⇄ this host ⇄ $XDG_RUNTIME_DIR/mio-browser.sock ⇄ assistantd
 

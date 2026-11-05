@@ -36,6 +36,7 @@ SOCK = RUNTIME / "assistant-avatar.sock"
 DAEMON_SOCK = RUNTIME / "assistant.sock"
 STATE = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "assistant" / "avatar.json"
 FADE_MS = 480  # her fade-out in app.js (LEAVE_MS); the window unmaps once it's done
+STAGE_LEAVE_MS = 960  # on the stage: she dissolves, then the last sparkles die out (LEAVE_MS + SPARKS_MS)
 
 
 def load_cfg() -> dict:
@@ -266,7 +267,7 @@ class Avatar(Gtk.Application):
 
         # wait for the fade, plus a moment for the compositor to take the empty frame
         self.view.evaluate_javascript("avatar.hide()", -1, None, None, None,
-                                      lambda *_: GLib.timeout_add(FADE_MS + 150, unmap), None)
+                                      lambda *_: GLib.timeout_add((STAGE_LEAVE_MS if self.stage else FADE_MS) + 150, unmap), None)
 
     # ── messages from the page ──────────────────────────────────────────────
     def _on_js(self, _ucm, value):

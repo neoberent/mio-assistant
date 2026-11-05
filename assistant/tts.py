@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import wave
 from pathlib import Path
 
@@ -133,7 +134,8 @@ class _Chatterbox:
         self.proc = None
 
     def close(self):
-        self._kill()
+        with self.lock:  # never in the middle of a sentence
+            self._kill()
 
 
 def split_sentences(text: str) -> list[str]:
@@ -154,10 +156,24 @@ def split_sentences(text: str) -> list[str]:
     return out
 
 
+def _notify(text: str):
+    try:
+        subprocess.Popen(["notify-send", "-a", "Mio", "-t", "6000", "Mio's voice", text],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass
+
+
 class TTS:
+    MAX_RETRY_S = 600
+
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.engine = cfg.get("engine", "kokoro")
+        self.retry_s = 60        # how long her real voice rests after it couldn't start (doubles, up to MAX_RETRY_S)
+        self._retry_at = None    # when to try it again; None = not waiting for it
+        self._retry_thread: threading.Thread | None = None
+        self._resting = False    # her real voice stepped aside for a game
         self._kokoro = None
         self._piper = None
         self._chatterbox = None
@@ -167,16 +183,19 @@ class TTS:
             try:
                 cb = _Chatterbox(self.cfg)
                 cb.start()
+                if self._resting:  # a game opened while it was starting
+                    cb.close()
+                    return
                 self._chatterbox = cb
                 return
             except Exception as e:
                 log.warning("chatterbox unavailable (%s); falling back to kokoro", e)
+                _notify("Her usual voice couldn't start, so she's using a backup one for now.")
                 self.engine = "kokoro"
+                self._retry_at = time.monotonic() + self.retry_s
         if self.engine == "kokoro":
             try:
-                from kokoro_onnx import Kokoro
-
-                self._kokoro = Kokoro(str(KOKORO_DIR / "kokoro-v1.0.onnx"), str(KOKORO_DIR / "voices-v1.0.bin"))
+                self._load_kokoro()
                 log.info("kokoro ready (voice %s)", self.cfg.get("kokoro_voice"))
                 return
             except Exception as e:
@@ -187,22 +206,84 @@ class TTS:
         self._piper = PiperVoice.load(str(PIPER_DIR / f"{self.cfg['piper_voice']}.onnx"))
         log.info("piper ready (voice %s)", self.cfg["piper_voice"])
 
-    def _synth(self, text: str) -> tuple[np.ndarray, int]:
-        if self._kokoro is None and self._piper is None and self._chatterbox is None:
-            self.load()
-        if self._chatterbox is not None:
+    def _load_kokoro(self):
+        from kokoro_onnx import Kokoro
+
+        self._kokoro = Kokoro(str(KOKORO_DIR / "kokoro-v1.0.onnx"), str(KOKORO_DIR / "voices-v1.0.bin"))
+
+    def step_aside(self):
+        """A game is running: give back the real voice's ~2.7 GB of VRAM and ~2.5 GB of RAM. Until come_back() she
+        speaks with Kokoro on the CPU, because restarting the real voice takes ~10 s per reply."""
+        if self.cfg.get("engine") != "chatterbox":
+            return
+        self._resting = True
+        self._retry_at = None
+        if cb := self._chatterbox:
+            self._chatterbox = None
+            cb.close()
+            log.info("chatterbox stepped aside")
+
+    def come_back(self):
+        if self.cfg.get("engine") != "chatterbox" or not self._resting:
+            return
+        self._resting = False
+        try:
+            cb = _Chatterbox(self.cfg)
+            cb.start()
+        except Exception as e:  # noqa: BLE001 - e.g. the GPU is still full: the usual retries take it from here
+            log.warning("chatterbox didn't come back (%s)", e)
+            self._retry_at = time.monotonic() + self.retry_s
+            return
+        self._chatterbox = cb
+        self.engine = "chatterbox"
+        self._kokoro = None
+        log.info("chatterbox is back after the game")
+
+    def _retry_chatterbox(self):
+        """After a failed start (usually the GPU was full), try again beside the sentence being spoken."""
+        if self._retry_at is None or time.monotonic() < self._retry_at or \
+                (self._retry_thread and self._retry_thread.is_alive()):
+            return
+
+        def attempt():
             try:
-                return self._chatterbox.synth(clean_tags(text))
+                cb = _Chatterbox(self.cfg)
+                cb.start()
+            except Exception as e:  # noqa: BLE001
+                self.retry_s = min(self.retry_s * 2, self.MAX_RETRY_S)
+                self._retry_at = time.monotonic() + self.retry_s
+                log.info("chatterbox still unavailable (%s); next try in %ss", e, self.retry_s)
+                return
+            self._retry_at = None
+            self._chatterbox = cb
+            self.engine = "chatterbox"
+            log.info("chatterbox is back")
+            _notify("Her usual voice is back.")
+
+        self._retry_at = float("inf")  # one attempt at a time; it sets the next time when it's done
+        self._retry_thread = threading.Thread(target=attempt, name="chatterbox-retry", daemon=True)
+        self._retry_thread.start()
+
+    def _synth(self, text: str) -> tuple[np.ndarray, int]:
+        if self._resting:
+            if self._kokoro is None:
+                self._load_kokoro()
+        elif self._kokoro is None and self._piper is None and self._chatterbox is None:
+            self.load()
+        elif self._chatterbox is None:
+            self._retry_chatterbox()
+        if (cb := self._chatterbox) is not None:
+            try:
+                return cb.synth(clean_tags(text))
             except Exception as e:  # one bad sentence: say it with Kokoro, keep Chatterbox for the next
                 log.warning("chatterbox failed (%s); kokoro for this sentence", e)
                 if self._kokoro is None:
-                    from kokoro_onnx import Kokoro
-                    self._kokoro = Kokoro(str(KOKORO_DIR / "kokoro-v1.0.onnx"), str(KOKORO_DIR / "voices-v1.0.bin"))
+                    self._load_kokoro()
         text = strip_tags(text)
-        if self._kokoro is not None:
+        if (kokoro := self._kokoro) is not None:
             voice = self.cfg.get("kokoro_voice", "af_heart")
             lang = "ja" if voice.startswith("j") else ("en-gb" if voice.startswith("b") else "en-us")
-            audio, sr = self._kokoro.create(text, voice=voice, speed=self.cfg.get("kokoro_speed", 1.0), lang=lang)
+            audio, sr = kokoro.create(text, voice=voice, speed=self.cfg.get("kokoro_speed", 1.0), lang=lang)
             return audio.astype(np.float32), sr
         chunks = list(self._piper.synthesize(text))
         if not chunks:

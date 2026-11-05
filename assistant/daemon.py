@@ -55,7 +55,7 @@ MULTI = re.compile(rf"\b(and then|then|after that|afterwards|and also|as well as
 # one action that just sounds like two (the fast path does it in one go)
 COMPOUND = re.compile(r"\b(?:on|in) (youtube|yt) and (open|play|click|start|watch) (the )?(first|top)\b|"
                       # "open brave origin and look up X": a search in the browser, one step
-                      r"^\W*(?:hey mio,? )?open(?: up)? (?:brave(?: origins?)?|(?:the |my )?browser) and "
+                      r"^\W*(?:hey mio,? )?open(?: up)? (?:zen(?: browser)?|brave(?: origins?)?|(?:the |my )?browser) and "
                       r"(?:search|look up|google)\b(?!.* and )|"
                       # "look at my screen and tell me what you see": the second part only reports on the first
                       r"\band (?:tell|let) me (?:know )?(?:what|how|if|whether|why|who|which|where) "
@@ -130,6 +130,17 @@ TEACH = re.compile(r"^\W*(?:hey mio,? )?(?:when(?:ever)? i say|every time i say|
 
 YES = re.compile(r"\b(yes|yeah|yep|sure|ok(ay)?|do it|go ahead|confirm(ed)?|please do|affirmative)\b", re.I)
 NO = re.compile(r"\b(no|nope|don'?t|stop|cancel|never ?mind)\b", re.I)
+ANSWER_WORDS = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "do", "it", "go", "ahead", "confirm", "confirmed",
+                "please", "affirmative", "hey", "mio"}
+
+
+def voice_says_yes(heard: str) -> bool:
+    """A risky action needs a short, clear yes. The mic also hears the speakers, so a sentence from a video that
+    merely contains "okay" or "yeah" must not count."""
+    words = re.findall(r"[a-z']+", heard.lower())
+    return bool(YES.search(heard)) and not NO.search(heard) and len(words) <= 6 and set(words) <= ANSWER_WORDS
+
+
 # her offer after a search: "Want me to open the top result?" / "Should I play the first video?"
 # "open the first video", "play the second one", "click the top result"
 PICK_RESULT = re.compile(r"(?:open|play|click(?: on)?|watch|start|put on|go to|take me to)(?: up)? (?:the |that )?"
@@ -284,6 +295,7 @@ class Assistant:
             log.info("session ended, conversation forgotten")
             spawn(self._learn_about_user(list(self.memory.turns)))
         self.memory.end_session()
+        self.tools.forget_outside_text()
 
     async def toggle_pin(self):
         self.pinned = not self.pinned
@@ -378,7 +390,7 @@ class Assistant:
                     continue  # dismissed / no action support: keep listening for voice
                 if voice in done:
                     heard = voice.result() or ""
-                    ok = bool(YES.search(heard)) and not NO.search(heard)
+                    ok = voice_says_yes(heard)
                     break
             for t in pending:
                 t.cancel()
@@ -396,13 +408,26 @@ class Assistant:
         if self.state == "listening":
             self.recorder.finish()
             return
+        if self.state == "confirming":
+            return  # she is waiting for this very answer
         if self.state == "speaking":
             self.player.stop()
-        if self.state in ("thinking", "confirming"):
-            return
-        if self._task and not self._task.done():
-            await asyncio.sleep(0.05)
+        if self.state == "thinking" and not (self._task and not self._task.done()):
+            return  # something else is thinking (a briefing): not ours to drop
+        await self._end_current()
         self._task = asyncio.create_task(self._interaction())
+
+    async def _end_current(self):
+        """Drop what she's working on and wait until it has cleaned up, so the next request starts from idle."""
+        task = self._task
+        if not task or task.done():
+            return
+        if self.state == "thinking":
+            task.cancel()
+        done, _ = await asyncio.wait([task], timeout=1)
+        if not done:  # still winding down after being told to stop
+            task.cancel()
+            await asyncio.wait([task], timeout=1)
 
     async def _interaction(self, text: str | None = None):
         if self.dreamer:
@@ -443,6 +468,12 @@ class Assistant:
                 log.warning("request timed out after %ss: %r", limit, text)
                 self.last_src = "timeout"
                 reply = "Sorry, that took far too long, so I stopped it. Try asking me again?"
+            except asyncio.CancelledError:  # they pressed stop or spoke again
+                log.info("request dropped: %r", text)
+                from . import review
+
+                review.log_request(text, "", "cancelled", time.time() - started, voice, self._trace)
+                raise
             self._hints = []
             log.info("reply: %r", reply)
             from . import review
@@ -478,6 +509,8 @@ class Assistant:
         if not self._wake_in_game():
             await asyncio.to_thread(self.stt.unload)
         await self.local.unload()
+        if self.cfg.gamemode.get("free_voice", True):
+            await asyncio.to_thread(self.tts.step_aside)
 
     async def _on_gamemode(self, active: bool, game: str):
         self.gaming = active
@@ -498,6 +531,8 @@ class Assistant:
                 self._regame_task.cancel()
             if self.stt._model is None:
                 await asyncio.to_thread(self.stt.load)  # back to instant replies
+            if self.cfg.gamemode.get("free_voice", True):
+                await asyncio.to_thread(self.tts.come_back)
 
     async def respond(self, text: str) -> str:
         if re.search(r"\b(what|which)\b.*\b(couldn'?t|could not|can'?t|cannot|didn'?t)\b.*\b(do|handle|answer)\b"
@@ -694,7 +729,7 @@ class Assistant:
                 log.info("forgot facts: %s", gone)
                 from .memory import spoken
 
-            return "Okay, forgotten: " + "; ".join(spoken(f) for f in gone) + "."
+                return "Okay, forgotten: " + "; ".join(spoken(f) for f in gone) + "."
             return ""  # not a fact: "forget that timer" etc. go on as usual
         return ""
 
@@ -897,6 +932,8 @@ class Assistant:
         elif cmd == "stop":
             self.player.stop()
             self.recorder.cancel()
+            if self.state == "thinking" and self._task and not self._task.done():
+                self._task.cancel()
         elif cmd == "say":
             spawn(self._say_then_idle(req.get("text", "")))
         elif cmd == "ask":  # typed (CLI, browser popup): one after another, else two requests share one trace
@@ -1127,6 +1164,7 @@ class Assistant:
 
 
 def main():
+    logging.getLogger("faster_whisper").setLevel(logging.WARNING)  # a line per wake check buried everything else
     logging.basicConfig(level=os.environ.get("ASSISTANT_LOG", "INFO"),
                         format="%(levelname)s %(name)s: %(message)s")
     asyncio.run(Assistant().run())

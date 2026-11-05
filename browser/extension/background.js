@@ -88,7 +88,7 @@ async function inject(tab, func, args = []) {
   const s = await settings();
   const hit = isBlocked(tab.url, s.blocked);
   if (hit) throw new Error(`Mio stays out of this site (blocked: "${hit}" — change it in the extension popup)`);
-  if (/^(chrome|brave|edge|about|chrome-extension|devtools):/.test(tab.url || "")) {
+  if (/^(chrome|brave|edge|about|chrome-extension|moz-extension|devtools):/.test(tab.url || "")) {
     throw new Error("that's a browser settings page, Mio can't read or touch those");
   }
   const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func, args });
@@ -177,7 +177,8 @@ async function run(action, a) {
         });
     }
     case "open": {
-      const tab = await chrome.tabs.create({ url: a.url });
+      // Firefox refuses to open about:newtab by URL; no URL means a new tab everywhere
+      const tab = await chrome.tabs.create(/^(chrome:\/\/|about:)newtab\/?$/.test(a.url) ? {} : { url: a.url });
       await logAction(`Opened ${new URL(a.url).host || "a new tab"}`);
       return { opened: tab.url || a.url };
     }

@@ -14,11 +14,11 @@ from typing import Awaitable, Callable
 from urllib.parse import quote_plus, urlparse
 
 from . import browser
-from .tools import SEARCH, SITES, ToolBox, find_app, to_url
+from .tools import BROWSER_APP, SEARCH, SITES, ToolBox, find_app, to_url
 
 log = logging.getLogger("browse")
 
-BROWSER = r"(?:brave(?:[ -]origins?| browser)?|(?:the |my |a )?(?:web )?browser)"
+BROWSER = r"(?:zen(?: browser)?|brave(?:[ -]origins?| browser)?|(?:the |my |a )?(?:web )?browser)"
 # "…, on brave origin", "… using the browser": which browser, not part of the search words
 MENTION = re.compile(rf"\s+(?:on|in|with|using|through|via|inside) {BROWSER}\b")
 OPEN_BROWSER = re.compile(rf"(?:open|launch|start|run|fire up|pull up|bring up|go to|go on|switch to)(?: up)? "
@@ -170,12 +170,12 @@ class Task:
         self.said: list[str] = []  # short phrases; a whole reply from another step starts with "\0"
 
     async def _open(self, url: str):
-        r = await self.tools.call("open", {"target": url, "app": "Brave Origin"})
+        r = await self.tools.call("open", {"target": url, "app": BROWSER_APP})
         self.loading = r.startswith("opened")
         return r
 
     async def _connected(self, timeout: float = 20) -> bool:
-        """The extension connects a few seconds after Brave starts."""
+        """The extension connects a few seconds after the browser starts."""
         loop = asyncio.get_running_loop()
         end = loop.time() + timeout
         while True:
@@ -266,8 +266,8 @@ class Task:
             await self._settle()
         if op == "browser":
             if not any(r["op"] in ("site", "search", "newtab", "play") for r in rest):
-                await self.tools.call("launch_app", {"name": "Brave Origin"})
-                self.said.append("opened Brave")
+                await self.tools.call("launch_app", {"name": BROWSER_APP})
+                self.said.append("opened Zen")
             return True
         if op == "newtab":
             if rest and rest[0]["op"] in ("site", "search", "play"):

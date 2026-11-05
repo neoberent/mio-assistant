@@ -34,7 +34,7 @@ CATEGORIES: dict[str, tuple[str, list[str]]] = {
                 r"rewind|go (back|forward) \w+|speed( it)? up|slow it down|normal speed|double speed|jump to|"
                 r"minute mark|seconds)\b",
                 ["youtube_play", "browser_video", "search_site"]),
-    "browser": (r"\b(page|article|site|website|tab|browser|brave|video|click|scroll|history|visited|"
+    "browser": (r"\b(page|article|site|website|tab|browser|zen|brave|video|click|scroll|history|visited|"
                 r"looked at|summari[sz]e|reading|watching|first (result|link|one)|this (page|video|article|post)|"
                 r"scroll|scrol|go to the top|selected|tldr|button|sign in|visit|visited|bring it back)\b",
                 ["browser_page", "browser_video", "browser_tabs", "browser_click", "type_text", "browser_scroll",
@@ -109,6 +109,9 @@ CATEGORIES: dict[str, tuple[str, list[str]]] = {
 HIDDEN = set(ALIASES)
 DEFAULT_TOOLS = ["web_research", "open", "launch_app", "run_shell", "search_my_setup", "weather"]
 MAX_TOOLS = 12
+# One size for every call: Ollama restarts a loaded model when num_ctx changes, so a preload or a quick planning call
+# at another size made her load twice (~2 s each). A smaller context saves almost nothing (6144: 66 MB less VRAM).
+NUM_CTX = 8192
 # the second, deeper attempt also gets these
 DEEP_TOOLS = ["run_shell", "web_research", "browser_page", "open"]
 
@@ -132,7 +135,7 @@ HARD = re.compile(r"\b(why|explain|compare|comparison|difference|differences|sho
                   re.I)
 
 EXAMPLES = """Examples of good tool use:
-- "open reddit in brave origin" → open(target="reddit", app="Brave Origin")
+- "open reddit in zen" → open(target="reddit", app="Zen Browser")
 - "is discord running?" → list_windows, then answer
 - "what's the newest kernel version?" → web_research(query="latest Linux kernel version")
 - "turn on night light" → shell_panel(command="nightlight-toggle")
@@ -158,7 +161,7 @@ EXAMPLES = """Examples of good tool use:
 - "shuffle my gym playlist" → riff(action="playlist", query="gym", shuffle=true); "open my chill playlist" → riff(action="open_playlist", query="chill"); "play my liked songs" → riff(action="liked")
 - "what song is this?" → riff(action="status"); "skip this song" → riff(action="next"); "like this song" → riff(action="like")
 - "open the github page of niri" → open_best_match(query="niri github")
-- "how much RAM is brave using?" → system_info, then read the 'RAM by app' line
+- "how much RAM is zen using?" → system_info, then read the 'RAM by app' line
 - "how hot is my gpu?" / "cpu temperature?" → system_health, then give the temperature
 - "is bluetooth on?" → shell_panel(command="bluetooth-status"); a question only checks, it never toggles anything
 - "turn on do not disturb" → shell_panel(command="notification-dnd-set on")
@@ -170,7 +173,7 @@ EXAMPLES = """Examples of good tool use:
 - "open my DM with Alex on discord" / "message Alex on discord" → discord(action="open", who="Alex"), then ask what to send
 - "tell him <words>" (Discord open) → discord(action="send", text="<exactly the words the user said>")
 - "open a new tab in kitty" → press_keys(keys="ctrl+shift+t", app="kitty"); "close this tab in kitty" → press_keys(keys="ctrl+shift+w", app="kitty")
-- "switch to brave" / "go to discord" (an app, not a tab) → focus_window(query="brave")
+- "switch to zen" / "go to discord" (an app, not a tab) → focus_window(query="zen")
 - "open my downloads folder" → open(target="~/Downloads")
 - "it's way too loud" → volume(mode="down", value=20), not mute
 - "what's in this picture?" / "what game is this?" / "what am I looking at?" → screen(question=...)
@@ -307,7 +310,8 @@ class LocalBrain:
         """Load the model into VRAM while the user is still talking (no-op if already loaded)."""
         try:
             await self.client.post("/api/generate", json={"model": self.cfg["ollama_model"],
-                                                          "keep_alive": self.cfg.get("ollama_keep_alive", "5m")})
+                                                          "keep_alive": self.cfg.get("ollama_keep_alive", "5m"),
+                                                          "options": {"num_ctx": NUM_CTX}})
         except httpx.HTTPError:
             pass
 
@@ -320,7 +324,7 @@ class LocalBrain:
     async def _chat(self, messages: list[dict], tools: list[dict] | None = None, think: bool = False) -> dict:
         body = {"model": self.cfg["ollama_model"], "messages": messages, "stream": think, "think": think,
                 "keep_alive": self.cfg.get("ollama_keep_alive", "5m"),
-                "options": {"num_ctx": 8192, "temperature": 0.4, "num_predict": 1500 if think else 250}}
+                "options": {"num_ctx": NUM_CTX, "temperature": 0.4, "num_predict": 1500 if think else 250}}
         if tools:
             body["tools"] = tools
         if not think:
@@ -361,7 +365,7 @@ class LocalBrain:
         body = {"model": self.cfg["ollama_model"], "stream": False, "think": False,
                 "keep_alive": self.cfg.get("ollama_keep_alive", "5m"), "format": schema,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                "options": {"num_ctx": 4096, "temperature": 0, "num_predict": n}}
+                "options": {"num_ctx": NUM_CTX, "temperature": 0, "num_predict": n}}
         try:
             r = await self.client.post("/api/chat", json=body)
             r.raise_for_status()
@@ -470,7 +474,7 @@ class LocalBrain:
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": text}],
                 "format": {"type": "object", "properties": {"steps": {"type": "array", "items": {"type": "string"}}},
                            "required": ["steps"]},
-                "options": {"num_ctx": 4096, "temperature": 0, "num_predict": 300}}
+                "options": {"num_ctx": NUM_CTX, "temperature": 0, "num_predict": 300}}
         try:
             r = await self.client.post("/api/chat", json=body)
             r.raise_for_status()
@@ -510,7 +514,7 @@ class LocalBrain:
                     "query": {"type": "string"}, "site": {"type": "string"}, "nth": {"type": "string"},
                     "kind": {"type": "string"}, "target": {"type": "string"}, "text": {"type": "string"},
                     "submit": {"type": "boolean"}, "direction": {"type": "string"}}, "required": ["op"]},
-                "options": {"num_ctx": 2048, "temperature": 0, "num_predict": 120}}
+                "options": {"num_ctx": NUM_CTX, "temperature": 0, "num_predict": 120}}
         try:
             r = await self.client.post("/api/chat", json=body)
             r.raise_for_status()
@@ -573,10 +577,11 @@ class LocalBrain:
         if (m := CHAT.match(text)) and not REQUEST.search(re.sub(r"[\W_]+$", "", text[m.end(1):])) and \
                 (answer := await self._small_talk(text, context, history)):
             return answer
-        think_cfg = self.cfg.get("local_thinking", "auto")  # auto | always | never
+        think_cfg = self.cfg.get("local_thinking", "auto")  # auto | lazy | always | never
         chat = bool(CHAT.match(text))
-        think_first = think_cfg == "always" or (think_cfg == "auto" and not chat)
-        think_rest = think_cfg == "always" or (think_cfg == "auto" and bool(HARD.search(text)))
+        think_first = think_cfg == "always" or (think_cfg == "auto" and not chat) or \
+            (think_cfg == "lazy" and bool(HARD.search(text)))
+        think_rest = think_cfg == "always" or (think_cfg in ("auto", "lazy") and bool(HARD.search(text)))
         previous_tools = list(previous_tools or [])
         if learned:
             previous_tools += [c["name"] for s in learned for c in s["calls"] if c["name"] not in previous_tools]
@@ -649,7 +654,7 @@ class LocalBrain:
 
     def system_prompt(self, names: list[str], context: str = "", retry: str = "") -> str:
         system = (f"{self.persona['style']}\nAlways answer in English. You control the user's Linux desktop (CachyOS/Arch, niri, Noctalia "
-                  "shell, Brave browser) with tools, and can do almost anything on it with run_shell. "
+                  "shell, Zen browser) with tools, and can do almost anything on it with run_shell. "
                   "After using a tool, answer from its result in a few words; for news mention the 2-3 most relevant "
                   "headlines with dates. Never say you did something unless a tool result confirms it. For facts, "
                   "news or anything current use web_research and name the sites. If the user says yes to something "
@@ -668,12 +673,18 @@ class LocalBrain:
         known = set(t.name for t in self.tools.specs()) - HIDDEN
         used: list[str] = []
         nudged = asked_answer = expanded = checked = englished = honest = False
+        rethink = self.cfg.get("local_thinking") == "lazy" and not think_first and not chat and bool(REQUEST.search(text))
         results: list[str] = []
         think = think_first
         for _ in range(8):
             msg = await self._chat(messages, specs, think)
             think = think_rest
             calls = msg.get("tool_calls") or []
+            if not calls and not used and rethink and (msg.get("content") or "").strip():
+                rethink = False  # a request answered without acting: this is what thinking is for, once
+                think = True
+                log.info("no tool for a request; thinking after all")
+                continue
             if not calls:
                 reply = re.sub(r"^\[tool results?:.*?\]\s*", "", (msg.get("content") or "").strip(), flags=re.S)
                 if not reply:

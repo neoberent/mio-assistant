@@ -82,6 +82,8 @@ def problems(rows: list[dict]) -> list[tuple[dict, list[str]]]:
         why = []
         nxt = rows[i + 1] if i + 1 < len(rows) else None
         close = nxt and (dt.datetime.fromisoformat(nxt["t"]) - dt.datetime.fromisoformat(r["t"])).total_seconds() < 120
+        if r.get("src") == "cancelled":
+            continue  # they stopped it on purpose
         if not r.get("reply") and not WANTS_SILENCE.match(r["text"]):
             why.append("said nothing")
         elif LOST.search(r["reply"]):

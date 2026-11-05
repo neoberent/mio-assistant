@@ -69,6 +69,7 @@
   #glow .red   { --g1: rgba(250,179,135,.85); --g2: rgba(243,139,168,.4); }
   #glow .red::before { animation: none; }
   #glow .red.flick::before { animation: flicker 1.1s ease-in-out 1; }
+  #glow .g:not(.live)::before { animation: none; }  /* nothing runs on layers nobody can see: each costs a full-screen frame */
   #glow.still .g::before { animation: none; }  /* the arrival swell doesn't breathe */
   @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
   @keyframes flicker { 0% { opacity: 1; } 18% { opacity: .35; } 36% { opacity: 1; } 54% { opacity: .5; } 100% { opacity: .9; } }
@@ -114,14 +115,20 @@
   #t2 { animation-delay: .2s; }
   @keyframes think { 0%, 100% { transform: scale(.85); } 40% { transform: scale(1.15);
                      box-shadow: inset 0 0 0 1px rgba(245,194,231,.7), 0 0 8px rgba(245,194,231,.6); } }
+  /* the line of light she materialises behind (app.js materialise()); only exists for those 0.3 s */
+  #reveal { display: none; position: absolute; height: 44px; margin-top: -22px; pointer-events: none; border-radius: 50%; filter: blur(5px);
+            background: radial-gradient(closest-side, rgba(255,255,255,.95), rgba(245,194,231,.7) 45%, rgba(203,166,247,.25) 72%, transparent); }
+  /* the capsule's animations only run while it's up (a few frames longer, so it fades out alive) */
+  #status.asleep *, #status.asleep::after, #status.asleep *::before, #status.asleep *::after, .trail.asleep { animation: none; }
 </style>
 </head>
 <body>
 <div id="glow"><i class="g pink"></i><i class="g blue"></i><i class="g amber"></i><i class="g red"></i><i class="g voice"></i></div>
+<div id="reveal"></div>
 <div id="bubble"></div>
 <div id="state"></div>
-<span class="trail" id="t1"></span><span class="trail" id="t2"></span>
-<div id="status"><div class="badge" id="badge"></div><div class="stext" id="stext"><div class="bar"></div></div></div>
+<span class="trail asleep" id="t1"></span><span class="trail asleep" id="t2"></span>
+<div id="status" class="asleep"><div class="badge" id="badge"></div><div class="stext" id="stext"><div class="bar"></div></div></div>
 <script src="vendor/live2dcubismcore.min.js"></script>
 <script src="vendor/pixi.min.js"></script>
 <script src="vendor/cubism4.min.js"></script>

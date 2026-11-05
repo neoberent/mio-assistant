@@ -397,6 +397,8 @@ without ClamAV she offers to install it, or scans everything else. Settings: `[s
 
 ## Testing checklist
 
+Run the fast logic tests first (no GPU, no daemon restart, nothing is sent to the desktop): `.venv/bin/python -m pytest`.
+
 1. `systemctl --user status assistantd assistant-avatar` — both active; log ends with `ready`.
 2. `assistant say "Hello, can you hear me?"` — she appears bottom-right on DP-1, mouth moves, hides after ~6 s.
 3. Click the empty area of her window next to her — the click lands on the window below (click-through).

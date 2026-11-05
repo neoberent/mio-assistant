@@ -4,4 +4,6 @@ ROOT="$(dirname "$(dirname "$(readlink -f "$0")")")"
 PY="$ROOT/.venv/bin/python"
 NV="$("$PY" -c 'import nvidia, os; d = list(nvidia.__path__)[0]; print(":".join(os.path.join(d, x, "lib") for x in sorted(os.listdir(d)) if os.path.isdir(os.path.join(d, x, "lib"))))' 2>/dev/null)"
 export LD_LIBRARY_PATH="${NV}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# OpenMP threads otherwise spin between Silero VAD calls: ~43% of a core just to listen for her name, ~6% with this
+export OMP_WAIT_POLICY=PASSIVE
 exec "$PY" -m assistant.daemon "$@"

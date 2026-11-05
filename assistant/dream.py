@@ -90,9 +90,9 @@ def use_trained(assistant, model: str):
 # ── teacher data (scripts/distill.py) in her exact prompt shape ─────────────
 GENERIC_NOW = [
     "Right now — focused window: kitty — ~ - fish.",
-    "Right now — focused window: brave-origin — YouTube; media playing: Lofi Girl — lofi hip hop radio.",
+    "Right now — focused window: zen — YouTube; media playing: Lofi Girl — lofi hip hop radio.",
     "Right now — focused window: discord — Friends - Discord.",
-    "Right now — focused window: brave-origin — Reddit - Dive into anything.",
+    "Right now — focused window: zen — Reddit - Dive into anything.",
     "Right now — focused window: Riff — Riff; media playing: Riff — Blinding Lights.",
     "Right now — focused window: steam — Steam.",
 ]

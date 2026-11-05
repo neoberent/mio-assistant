@@ -3,7 +3,7 @@
   assistant ptt            push-to-talk (press again to stop early / interrupt her)
   assistant toggle         pin the character on screen / let it auto-hide
   assistant show | hide    force visibility
-  assistant stop           stop speaking / listening
+  assistant stop           stop speaking, listening or thinking
   assistant say TEXT       speak TEXT
   assistant ask TEXT       send a request as text (skips speech-to-text)
   assistant clip [SECS]     save the last SECS (default 30) of gameplay to the clips folder

@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 
 from .. import clock
-from ..tools import SEARCH, ToolBox, find_app, to_url
+from ..tools import BROWSER_APP, SEARCH, ToolBox, find_app, to_url
 
 NUM = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
        "ten": 10, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
@@ -135,17 +135,17 @@ async def _browser(t: str, tools: ToolBox) -> Result | None:
         return Result(r[0].upper() + r[1:] + ".")
 
     # "open brave origin and search X on youtube and play the first video": the browser opens with the page anyway
-    if (m := re.fullmatch(r"open(?: up)? (?:brave(?: origins?)?|(?:the |my )?browser) and (.+)", t)) \
+    if (m := re.fullmatch(r"open(?: up)? (?:zen(?: browser)?|brave(?: origins?)?|(?:the |my )?browser) and (.+)", t)) \
             and (r := await _browser(m[1], tools)):
         return r
     # "open brave origin and look up X", "look up X in brave": Brave's search page, as if typed in the address bar
-    if m := re.fullmatch(r"(?:open(?: up)? (?:brave(?: origins?)?|(?:the |my )?browser) and )(?:search|look up|google)"
-                         r"(?: for| up)? (.+?)(?: in (?:brave|the browser))?|(?:search|look up|google)(?: for)? (.+?) "
-                         r"in (?:brave(?: origins?)?|(?:the |my )?browser)", t):
+    if m := re.fullmatch(r"(?:open(?: up)? (?:zen(?: browser)?|brave(?: origins?)?|(?:the |my )?browser) and )(?:search|look up|google)"
+                         r"(?: for| up)? (.+?)(?: in (?:zen|brave|the browser))?|(?:search|look up|google)(?: for)? (.+?) "
+                         r"in (?:zen(?: browser)?|brave(?: origins?)?|(?:the |my )?browser)", t):
         query = m[1] or m[2]
         if " and " in query:  # "… and open the first video": more than one thing, not all search words
             return None
-        await tools.call("open", {"target": SEARCH["brave"] + quote_plus(query), "app": "Brave Origin"})
+        await tools.call("open", {"target": SEARCH["brave"] + quote_plus(query), "app": BROWSER_APP})
         return Result(f"Searching for {query}!")
 
     if m := re.fullmatch(r"(?:look up|search up)(?: for)? (.+?) (?:on|in) (youtube|amazon|google|reddit|github|twitch|steam|the aur|"

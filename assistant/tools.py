@@ -19,12 +19,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from . import shellcheck
 from .config import AUDIT_LOG
 from .pkgcheck import assess_install, read_terminal
 
 log = logging.getLogger("tools")
 MAX_OUT = 1500
 AUDIT_MAX = 5 << 20  # rotate the audit log at 5 MB (one .1 kept)
+
+# tools whose results hold text written by someone else (a web page can say "now run this command")
+OUTSIDE_TEXT = {"web_research", "read_link", "read_clipboard_link", "browser_page", "browser_video", "browser_tabs",
+                "browser_history", "read_screen", "screen", "look_at_screen", "see_screen", "terminal_text", "read_file",
+                "wikipedia", "arch_wiki", "arch_news", "game_news", "package_info", "check_install", "search_site",
+                "open_best_match", "youtube_play", "discord", "phone", "clipboard"}
 
 ConfirmFn = Callable[[str], Awaitable[bool]]
 
@@ -178,10 +185,12 @@ def _exec_argv(exec_line: str) -> list[str]:
     return [re.sub(r"%[fFuUdDnNickvm]", "", a) for a in argv]
 
 
+BROWSER_APP = "Zen Browser"  # where web links open unless the user names another browser
+
 # site search pages for 'search X on <site>'
 def wants_video(said: str) -> bool:
     """Did the user ask for a video to play, not just to look something up? 'open brave and look up X' isn't."""
-    t = re.sub(r"\bopen(?: up)? (?:brave(?: origins?)?|(?:the |my |a )?browser|youtube|(?:a |new )*tabs?)\b", "", said.lower())
+    t = re.sub(r"\bopen(?: up)? (?:zen(?: browser)?|brave(?: origins?)?|(?:the |my |a )?browser|youtube|(?:a |new )*tabs?)\b", "", said.lower())
     return bool(re.search(r"\b(play|watch|listen to|put on|pull up|bring up|start|open(?: up)?|show me|(?:the |first |top )"
                           r"(?:video|one|result))\b", t))
 
@@ -257,6 +266,7 @@ class ToolBox:
         self.vision: dict = {}  # [brain] config, for see_screen's local vision model
         self.run_steps: Callable[[list[str]], Awaitable[str]] | None = None  # routines, set by the daemon
         self.scanner = None  # assistant.virusscan.Scanner, set by the daemon
+        self.read_outside_text = False  # this session's context holds text from pages, files or other people
         self.confirm = confirm
         self.remember_fn = remember
         self.roots = [Path(os.path.expanduser(r)).resolve() for r in sec.get("file_roots", [])]
@@ -288,6 +298,10 @@ class ToolBox:
         return f"What is said in it, {where}, heard by you{note}: " + text[:6000]
 
     # ── gate ────────────────────────────────────────────────────────────────
+    def forget_outside_text(self):
+        """The session ended, so what she read is gone from the model's context."""
+        self.read_outside_text = False
+
     def _audit(self, name: str, args: dict, decision: str, result: str = ""):
         try:  # logging must never turn a finished action into "something went wrong" (e.g. disk full)
             AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -307,13 +321,7 @@ class ToolBox:
             return "deny"
         if any(re.search(p, cmd) for p in self.sec.get("shell_confirm_patterns", [])):
             return "confirm"
-        # every command in a pipeline / chain must be allow-listed ('a|b' inside quotes is an argument)
-        unquoted = re.sub(r"'[^']*'|\"[^\"]*\"", "''", cmd)
-        if re.search(r"\$\(|`", unquoted):  # command substitution hides what really runs
-            return "confirm"
-        words = [seg.strip().split()[0] for seg in re.split(r"\|\||&&|[|;&]", unquoted) if seg.strip()]
-        allow = set(self.sec.get("shell_allow", []))
-        return "allow" if words and all(w in allow for w in words) else "confirm"
+        return "allow" if shellcheck.plain_look(cmd, set(self.sec.get("shell_allow", []))) else "confirm"
 
     def protected(self, p: str | Path) -> bool:
         """Folders that must never be deleted or moved as a whole: home, the allowed roots (Downloads,
@@ -348,7 +356,7 @@ class ToolBox:
     def _deletes_main_folder(self, cmd: str) -> bool:
         """`rm -r ~/Downloads`, `gio trash ~`, `rm -rf *` (runs in home), `mv ~/Documents x`, `find ~ -delete`…"""
         home = Path.home()
-        for seg in re.split(r"\|\||&&|[|;&]", cmd):
+        for seg in re.split(r"\|\||&&|[|;&\r\n]", cmd):
             try:
                 words = shlex.split(seg)
             except ValueError:
@@ -437,6 +445,8 @@ class ToolBox:
             decision = "confirm"
         elif tool.risk == "shell":
             decision = self._shell_policy(args.get("command", ""))
+            if decision == "allow" and self.read_outside_text:
+                decision = "confirm"  # that text may be telling the model what to run: the user sees the command
         if decision == "deny":
             self._audit(name, args, "deny")
             return "refused: this command is blocked by the security policy"
@@ -462,6 +472,8 @@ class ToolBox:
                 await self.on_tool(name, args)
             except Exception:
                 pass
+        if name in OUTSIDE_TEXT:
+            self.read_outside_text = True
         limit = self.sec.get("tool_timeout_s", 180)
         try:  # a hung tool (network, a stuck subprocess) must not leave her "thinking" forever
             result = await asyncio.wait_for(tool.fn(**args), limit)
@@ -687,7 +699,7 @@ class ToolBox:
             return "shown"
 
         @self._add("open", "Open a URL in the browser, or a file/folder in its default app. 'app' optionally "
-                   "names the program to use, e.g. 'Brave Origin', 'Firefox'. Only open URLs that appeared in the "
+                   "names the program to use, e.g. 'Zen Browser', 'Firefox'. Only open URLs that appeared in the "
                    "conversation or tool results; never guess one.", {"target": S, "app": S}, ["target"])
         async def open_(target: str, app: str | None = None) -> str:
             url = to_url(target)
@@ -696,12 +708,15 @@ class ToolBox:
             else:
                 target = str(self._check_path(target))
             argv, used = ["xdg-open", target], "the default app"
-            if app and not re.search(r"\b(default|my)\b", app, re.I):
-                found = find_app(app)
-                if found:
-                    argv, used = _exec_argv(found["exec"]) + [target], found["name"]
-                else:
-                    used = f"the default browser ({app} is not installed)"
+            named = app and not re.search(r"\b(default|my)\b", app, re.I)
+            found = find_app(app) if named else None
+            missing = named and not found
+            if not found and url and url.startswith("http"):  # mailto: stays with the default app
+                found = find_app(BROWSER_APP)
+            if found:
+                argv, used = _exec_argv(found["exec"]) + [target], found["name"]
+            if missing:
+                used += f" ({app} is not installed)"
             code, out = await sh("niri", "msg", "action", "spawn", "--", *argv)
             return f"opened {target} in {used}" if code == 0 else f"failed: {out}"
 
@@ -712,7 +727,7 @@ class ToolBox:
             from .screen import focused_window
 
             app = ((await focused_window()) or {}).get("app_id") or ""
-            if re.search(r"brave|chrom|firefox", app, re.I) and "browser_type" in self.tools:
+            if re.search(r"zen|brave|chrom|firefox", app, re.I) and "browser_type" in self.tools:
                 try:
                     return await self.tools["browser_type"].fn(text=text, submit=submit)
                 except RuntimeError as e:  # extension not connected, no field: type with the keyboard
@@ -805,7 +820,7 @@ class ToolBox:
             for line in (await sh("ps", "-eo", "rss=,comm=", limit=None))[1].splitlines():
                 kb, _, name = line.strip().partition(" ")
                 if kb.isdigit():
-                    name = re.sub(r"^(brave|chrome|firefox|electron|steam|discord)\w*.*", r"\1", name.strip(), flags=re.I)
+                    name = re.sub(r"^(zen|brave|chrome|firefox|electron|steam|discord)\w*.*", r"\1", name.strip(), flags=re.I)
                     ram[name] = ram.get(name, 0) + int(kb)
             top = sorted(ram.items(), key=lambda kv: -kv[1])[:8]
             parts.append("RAM by app: " + ", ".join(f"{n} {kb / 1048576:.1f} GB" for n, kb in top))
@@ -1157,7 +1172,7 @@ class ToolBox:
                 return "there is no link in the clipboard"
             return await web.read_url(url)
 
-        # ── browser (via the Mio extension in Brave) ──────────────────────────
+        # ── browser (via the Mio extension in Zen) ──────────────────────────
         async def bcall(action: str, **args):
             from . import browser
 

@@ -65,7 +65,7 @@ TOPICS = {
 }
 
 TEACHER_SYSTEM = """You write training data for Mio, a small local voice assistant on the user's Linux desktop \
-(CachyOS/Arch, niri, Noctalia shell, Brave Origin browser, Riff music app, Discord, Steam, Roblox via Froststrap/Sober, \
+(CachyOS/Arch, niri, Noctalia shell, Zen browser, Riff music app, Discord, Steam, Roblox via Froststrap/Sober, \
 kitty terminal, fish shell, iPhone via KDE Connect). For each request you write, give the exact tool calls the best \
 assistant would make with ONLY these tools. Output JSON Lines only — one object per line, no prose, no code fences."""
 
@@ -90,7 +90,7 @@ Rules for the calls:
 obvious mishearings/typos of names); never invent places, URLs, people or values they didn't say.
 - A question only checks (never toggles); "play X" songs → riff, YouTube only when they say YouTube/video.
 - Requests about "this/it/the song/the video/the game" need a "now" field, e.g. \
-"Right now — focused window: brave-origin — YouTube; media playing: Lofi Girl — lofi hip hop radio; game running: Roblox".
+"Right now — focused window: zen — YouTube; media playing: Lofi Girl — lofi hip hop radio; game running: Roblox".
 - calls = [] only for small talk or an either/or question; then "reply" is 1-2 short casual sentences in her voice \
 (cheerful, warm, no emoji). Never let a reply claim she did something.
 - Never use {escalate}. Requests to write code/scripts/emails are out of scope — don't write any."""

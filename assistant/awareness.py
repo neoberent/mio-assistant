@@ -9,7 +9,7 @@ import asyncio
 import json
 import re
 
-BROWSERS = re.compile(r"brave|chrom|firefox", re.I)
+BROWSERS = re.compile(r"zen|brave|chrom|firefox", re.I)
 
 
 async def _run(*argv: str) -> str:
@@ -23,7 +23,7 @@ async def _run(*argv: str) -> str:
 
 
 def _short(title: str, n: int = 70) -> str:
-    title = re.sub(r"\s+-\s+(Brave( Origin)?|Chromium|Mozilla Firefox|Discord)$", "", title or "").strip()
+    title = re.sub(r"\s+[-—]\s+(Zen Browser|Brave( Origin)?|Chromium|Mozilla Firefox|Discord)$", "", title or "").strip()
     return title if len(title) <= n else title[:n - 1] + "…"
 
 

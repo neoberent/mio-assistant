@@ -11,11 +11,11 @@
   const stateDot = document.getElementById("state");
 
   const app = new PIXI.Application({
-    resizeTo: window, backgroundAlpha: 0, antialias: true,
+    backgroundAlpha: 0, antialias: true,
     resolution: window.devicePixelRatio || 1, autoDensity: true,
   });
+  app.view.style.cssText = "position: absolute; left: 0; top: 0; z-index: -1";  // under the glow, bubble and capsule
   document.body.appendChild(app.view);
-  app.ticker.maxFPS = 60; // stage: smooth; during a game (compact layout) layout() drops it to 30
 
   let model = null;
   let voice = 0, voiceShown = 0;  // her voice level for the speaking glow, see voiceGlow()
@@ -45,6 +45,23 @@
   // While dragging, the window covers the whole monitor and `frame` is where her normal window would be.
   let frame = null;
   let lift = 0, quiet = false;  // lift: vertical offset for drop-ins and hops; quiet: don't spam bounds mid-animation
+  // The canvas only covers her (on the stage the window is the whole monitor), so a frame costs far less GPU.
+  // `drawn` stays in page coordinates; only the model's position inside the canvas knows about this.
+  const CANVAS_PAD = 40;  // hair and skirt swinging past the rest pose
+  let cv = { x: 0, y: 0, w: 0, h: 0 };
+  function placeCanvas() {
+    const r = stage && drawn
+      ? { x: Math.floor(drawn.x) - CANVAS_PAD, y: Math.floor(drawn.y) - CANVAS_PAD,
+          w: Math.ceil(drawn.w) + 2 * CANVAS_PAD, h: Math.ceil(drawn.h) + 2 * CANVAS_PAD }
+      : { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
+    model.position.x -= r.x; model.position.y -= r.y;
+    const resized = r.w !== cv.w || r.h !== cv.h;
+    if (resized) app.renderer.resize(r.w, r.h);
+    if (r.x !== cv.x || r.y !== cv.y) app.view.style.transform = `translate(${r.x}px, ${r.y}px)`;
+    cv = r;
+    if (resized) app.renderer.render(app.stage);  // resizing clears it: don't let an empty frame reach the screen
+  }
+
   function fit() {
     if (!model) return;
     const W = window.innerWidth, H = window.innerHeight;
@@ -55,8 +72,9 @@
     model.anchor.set(0, 0);
     model.position.set(fx + w / 2 - (a.x + a.w / 2) * s, fy + lift + h * focus - (a.y + a.h * focus) * s);
     drawn = { x: model.position.x + a.x * s, y: model.position.y + a.y * s, w: a.w * s, h: a.h * s };
+    placeCanvas();
     if (drag || quiet) return;  // input region only when she's standing still
-    const x = model.position.x + a.x * s, y = model.position.y + a.y * s;
+    const { x, y } = drawn;
     if (x + a.w * s <= 0 || y + a.h * s <= 0 || x >= W || y >= H) return;
     post({ t: "bounds", x: Math.max(0, x), y: Math.max(0, y),
            w: Math.min(W, x + a.w * s) - Math.max(0, x), h: Math.min(H, y + a.h * s) - Math.max(0, y) });
@@ -283,7 +301,7 @@
   // she follows the cursor inside it, and on release the window shrinks back at her new spot.
   let drag = null;
   window.addEventListener("pointerdown", (e) => {
-    if (e.button === 0) drag = { x: e.clientX, y: e.clientY, moved: false, start: null, ending: false };
+    if (e.button === 0) { drag = { x: e.clientX, y: e.clientY, moved: false, start: null, ending: false }; setFps(); }
   });
   window.addEventListener("pointermove", (e) => {
     if (stage && drag) {
@@ -319,7 +337,7 @@
   });
   window.addEventListener("pointerup", () => {
     if (stage && drag) {
-      const moved = drag.moved; drag = null;
+      const moved = drag.moved; drag = null; setFps();
       if (moved) {
         home = [frame.x / Math.max(1, innerWidth - frame.w), frame.y / Math.max(1, innerHeight - frame.h)];
         post({ t: "stage_drop", fx: home[0], fy: home[1], mr: innerWidth - frame.x - frame.w, mb: innerHeight - frame.y - frame.h });
@@ -479,7 +497,39 @@
     app.view.style.opacity = shown;
   }
 
+  // ── materialising: she appears from her feet up behind a line of light, and dissolves upward into sparkles.
+  // Live2D ignores partial alpha, so both run as a CSS mask on her canvas (the canvas only covers her, so it's cheap).
+  const REVEAL_MS = 300, MASK_SOFT = 7;
+  const shimmer = document.getElementById("reveal");
+  let veil = 0;  // 0 = whole, 1 = dissolved away
+  const setMask = (m) => { app.view.style.webkitMaskImage = app.view.style.maskImage = m; };
+  function setVeil(e) {
+    veil = e;
+    const edge = 100 - (107 - 114 * e);
+    setMask(e > 0 ? `linear-gradient(to bottom, transparent ${edge - MASK_SOFT}%, #000 ${edge}%)` : "");
+  }
+  function endReveal() { shimmer.style.display = "none"; setVeil(0); }
+  async function materialise(tok) {
+    const b = drawn;
+    setMask(`linear-gradient(to top, #000 ${-7 - MASK_SOFT}%, transparent -7%)`);
+    setShown(1);
+    if (!b) { endReveal(); return; }
+    shimmer.style.cssText = `display: block; left: ${b.x + b.w * .08}px; width: ${b.w * .84}px; top: ${b.y + b.h}px`;
+    await anim(REVEAL_MS, (k) => {
+      if (tok !== fadeTok) return;
+      const e = easeOut(k), y = b.y + b.h * (1 - e), p = -7 + 114 * e;
+      setMask(`linear-gradient(to top, #000 ${p - MASK_SOFT}%, transparent ${p}%)`);
+      shimmer.style.top = y + "px"; shimmer.style.opacity = k < .8 ? 1 : (1 - k) * 5;
+      if (Math.random() < .6) drift(2, b, y);
+    });
+    if (tok === fadeTok) { endReveal(); drift(14, { x: b.x, y: b.y + b.h * .86, w: b.w, h: b.h * .14 }); }
+  }
+
   async function arrive() {
+    arriving = true; setFps();
+    try { await arriveNow(); } finally { arriving = false; setFps(); }
+  }
+  async function arriveNow() {
     const tok = ++fadeTok;
     if (!stage) {  // compact (game) window: a quick fade, no stage effects
       quiet = true; lift = 0;
@@ -494,23 +544,33 @@
     frame = { x: Math.max(0, Math.min(innerWidth - box.w, x)), y: Math.max(0, Math.min(innerHeight - box.h, y)), w: box.w, h: box.h };
     if (tok !== fadeTok) return;
     setShown(0); quiet = true; lift = 0; fit(); placeUi();
-    if (glowEnabled) { glowArrive = true; glowTo("pink", 0.9, 300, true); await sleep(40); }
+    if (glowEnabled) { glowArrive = true; glowTo("pink", 0.9, REVEAL_MS, true); }
+    await materialise(tok);
     if (tok !== fadeTok) return;
-    await anim(280, (k) => { if (tok === fadeTok) setShown(easeOut(k)); });  // just a fade, she doesn't move
-    if (tok !== fadeTok) return;
-    setShown(1); lift = 0; quiet = false; fit(); placeUi();
-    if (drawn) burst(drawn.x + drawn.w / 2, drawn.y + drawn.h * 0.92, 14, 2.4);
+    lift = 0; quiet = false; fit(); placeUi();
     await sleep(120);
     if (tok === fadeTok && glowArrive) { glowArrive = false; setGlow(curState, 1400); }  // the swell eases into her state
   }
 
   // ── leaving: everything fades together, then avatar.py unmaps the window (FADE_MS there must match) ──
-  const LEAVE_MS = 480;
+  const LEAVE_MS = 480, SPARKS_MS = 480;  // the stage waits for the last sparkles too (STAGE_LEAVE_MS in avatar.py)
   async function leave() {
     const tok = ++fadeTok;
-    quiet = true; glowArrive = false;
+    quiet = true; glowArrive = false; arriving = true; setFps();
     hideStatus(); bubble.classList.remove("on"); glowTo(null, 0, LEAVE_MS);
-    if (model) {
+    endReveal();
+    if (model && stage && drawn && shown > 0.01) {
+      const b = drawn;
+      await anim(LEAVE_MS, (k) => {
+        if (tok !== fadeTok) return;
+        const e = k * k;
+        setVeil(e);
+        if (Math.random() < .85) drift(3, b, b.y + b.h * e);
+      });
+      if (tok !== fadeTok) return;
+      setShown(0); setVeil(0);
+      await sleep(SPARKS_MS);
+    } else if (model) {
       const a0 = shown, l0 = lift;
       await anim(LEAVE_MS, (k) => {
         if (tok !== fadeTok) return;
@@ -518,6 +578,7 @@
       });
     }
     if (tok !== fadeTok) return;
+    arriving = false;
     // the surface keeps its last frame and shows it again on the next map: leave it empty
     if (model) { setShown(0); lift = 0; }
     app.renderer.render(app.stage);
@@ -525,27 +586,37 @@
   }
   async function unhide() {  // shown again while still fading out: turn around instead of popping
     const tok = ++fadeTok;
+    arriving = true;
     app.ticker.start();
     setGlow(curState, 700);
     if (!model) return;
-    const a0 = shown, l0 = lift;
+    const a0 = shown, l0 = lift, v0 = veil;
     await anim(380, (k) => {
       if (tok !== fadeTok) return;
-      const e = easeOut(k); setShown(a0 + (1 - a0) * e); lift = l0 * (1 - e); fit();
+      const e = easeOut(k); setShown(a0 + (1 - a0) * e); setVeil(v0 * (1 - e)); lift = l0 * (1 - e); fit();
     });
-    if (tok === fadeTok) { setShown(1); lift = 0; quiet = false; fit(); placeUi(); }
+    if (tok === fadeTok) { setShown(1); setVeil(0); lift = 0; quiet = false; arriving = false; setFps(); fit(); placeUi(); }
   }
 
   // ── screen glow by state: one layer per colour, crossfaded ──
-  let curState = "idle", glowArrive = false, errorTimer = null;
+  let curState = "idle", glowArrive = false, errorTimer = null, arriving = false;
   const layers = Object.fromEntries([...glow.children].map((g) => [g.classList[1], g]));
   const GLOW = { speaking: ["voice", 0.85], listening: ["pink", 0.5], thinking: ["blue", 0.75], thinking_hard: ["blue", 0.75], confirming: ["amber", 0.65] };
+  const glowSleep = {};
+  // 60 fps whenever something is happening; just standing there, her breathing looks the same at 30 and costs half
+  function setFps() {
+    app.ticker.maxFPS = stage && (curState !== "idle" || arriving || drag) ? 60 : 30;
+  }
   function glowTo(name, level, ms, still = false) {
     glow.classList.toggle("still", still);
     for (const [n, g] of Object.entries(layers)) {
       g.style.transitionDuration = ms + "ms";
       g.style.opacity = n === name ? level : 0;
+      clearTimeout(glowSleep[n]);
+      if (n === name && level > 0) g.classList.add("live");  // its breathing only runs while it can be seen
+      else glowSleep[n] = setTimeout(() => g.classList.remove("live"), ms + 50);
     }
+    setFps();
   }
   // while she talks the glow swells with her voice: fast attack, slow release
   function voiceGlow(target, dt) {
@@ -557,6 +628,7 @@
   }
   function setGlow(st, ms = 900) {
     if (st !== "error") curState = st;
+    setFps();
     if (!stage || !glowEnabled) { glowTo(null, 0, 0); return; }
     if (glowArrive && st !== "error") return;  // the arrival swell eases into the current state by itself
     clearTimeout(errorTimer);
@@ -672,16 +744,20 @@
     requestAnimationFrame(() => requestAnimationFrame(() => { ic.classList.remove("out"); line.classList.remove("out"); }));
     if (!statusOn) {
       statusOn = true; placeUi();
+      clearTimeout(statusSleep);
+      for (const el of [statusEl, trail1, trail2]) el.classList.remove("asleep");
       statusEl.classList.add("on"); trail1.classList.add("on"); trail2.classList.add("on");
     }
     badge.insertAdjacentHTML("beforeend", '<span class="ring"></span>');
     const ring = badge.lastElementChild; setTimeout(() => ring.remove(), 800);
     setTimeout(() => { const b = badge.getBoundingClientRect(); burst(b.left + b.width / 2, b.top + b.height / 2, 18, 3.2); }, 60);
   }
+  let statusSleep = null;
   function hideStatus() {
     if (!statusOn) return;
     statusOn = false; lastTool = lastDetail = null;
     statusEl.classList.remove("on"); trail1.classList.remove("on"); trail2.classList.remove("on");
+    statusSleep = setTimeout(() => { for (const el of [statusEl, trail1, trail2]) el.classList.add("asleep"); }, 600);
   }
 
   // ── sparkles (own canvas above her; only animates while there is something to draw) ──
@@ -706,13 +782,24 @@
     for (let i = parts.length - 1; i >= 0; i--) {
       const p = parts[i];
       if (++p.life > p.max) { parts.splice(i, 1); continue; }
-      p.x += p.vx; p.y += p.vy; p.vx *= .95; p.vy = p.vy * .95 - .02;
+      p.x += p.vx; p.y += p.vy;
+      if (p.drift) { p.vx *= .985; p.vy -= .012; } else { p.vx *= .95; p.vy = p.vy * .95 - .02; }
       const k = p.life / p.max;
       g.globalAlpha = Math.sin(Math.PI * k); g.fillStyle = g.shadowColor = p.c; g.shadowBlur = 12;
       if (p.star) star(p.x, p.y, p.r * (1 - k * .4)); else { g.beginPath(); g.arc(p.x, p.y, p.r * (1 - k), 0, 7); g.fill(); }
     }
     g.globalAlpha = 1;
     if (parts.length || statusOn) requestAnimationFrame(fxTick); else fxRunning = false;
+  }
+  // sparkles that float up slowly: along a line at height y, or anywhere in area b without one
+  function drift(n, b, y = null) {
+    if (!stage) return;
+    for (let i = 0; i < n; i++) {
+      parts.push({ x: b.x + b.w * (.12 + .76 * Math.random()), y: y === null ? b.y + Math.random() * b.h : y + (Math.random() - .5) * 26,
+                   vx: (Math.random() - .5) * .9, vy: -.4 - Math.random() * 1.1, life: 0, max: 34 + Math.random() * 34,
+                   r: 1.6 + Math.random() * 3.4, c: COL[Math.floor(Math.random() * COL.length)], star: true, drift: true });
+    }
+    if (!fxRunning) { fxRunning = true; requestAnimationFrame(fxTick); }
   }
   function burst(x, y, n, speed) {
     if (!stage) return;
@@ -744,9 +831,10 @@
       box = { w: o.w, h: o.h }; monitor = { w: o.mw || 0, h: o.mh || 0 };
       document.body.classList.toggle("stage", stage);
       frame = stage ? { x: 0, y: 0, w: o.w, h: o.h } : null;
-      app.ticker.maxFPS = stage ? 60 : 30;  // the compact window runs next to a game: keep it light
+      setFps();  // the compact window runs next to a game: always 30
       ++fadeTok; glowArrive = false;
-      if (model) { setShown(0); lift = 0; quiet = true; }  // stays invisible until arrive() fades her in
+      endReveal();
+      if (model) { setShown(0); lift = 0; quiet = true; }  // stays invisible until arrive() brings her in
       hideStatus(); glowTo(null, 0, 0); bubble.classList.remove("on", "swap");
       placeUi();
     },

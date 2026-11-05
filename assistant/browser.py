@@ -13,8 +13,8 @@ from .config import RUNTIME
 log = logging.getLogger("browser")
 
 SOCK = RUNTIME / "mio-browser.sock"
-NOT_CONNECTED = ("the browser extension isn't connected. Brave has to be open with the Mio extension installed "
-                 "(scripts/install_browser.sh, then load browser/extension in brave://extensions)")
+NOT_CONNECTED = ("the browser extension isn't connected. Zen has to be open with the Mio extension installed "
+                 "(scripts/install_browser.sh, then load browser/extension in your browser)")
 
 
 async def call(action: str, **args) -> dict:

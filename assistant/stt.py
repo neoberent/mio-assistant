@@ -13,15 +13,15 @@ log = logging.getLogger("stt")
 
 # Primes Whisper with words the user says a lot (spelling of names, games, apps). Only for commands, never for
 # wake checks, where a prompt makes it hallucinate the words from noise.
-VOCAB = ("Hey Mio, open YouTube in Brave. Play Roblox, clip that. Check for updates with paru and pacman on "
+VOCAB = ("Hey Mio, open YouTube in Zen. Play Roblox, clip that. Check for updates with paru and pacman on "
          "CachyOS. Niri, Noctalia, kitty, fish, Discord, Steam, Spotify, Hatsune Miku, Wikipedia, GitHub. "
-         "Froststrap, Brave Origin, Kate, Trymacs, Jordan & Semih, Rohaze. Riff: play my chill playlist.")
+         "Froststrap, Zen Browser, Kate, Trymacs, Jordan & Semih, Rohaze. Riff: play my chill playlist.")
 
 # words Whisper keeps getting wrong for this user → what they said
 FIXES = [(r"\b(?:Miu|Meo|Miyo|Mijo)\b", "Mio"), (r"\bPatsune\b", "Hatsune"), (r"\b(?:Road ?blocks?|Roblocks)\b", "Roblox"),
          (r"\b(?:Nearie|Neary|Niri's)\b", "niri"), (r"\bkip that\b", "clip that"), (r"\bPack ?man\b", "pacman"),
          (r"\bParu\b", "paru"), (r"\bCatchy ?OS\b", "CachyOS"), (r"\bYou ?tube\b", "YouTube"),
-         (r"\bFrost ?(?:trap|strap)\b", "Froststrap"), (r"\bBrave Origins\b", "Brave Origin"),
+         (r"\bFrost ?(?:trap|strap)\b", "Froststrap"),
          (r"\b(open (?:it|them|this|that) in) Cade\b", r"\1 Kate"), (r"\bTrimax\b", "Trymacs"),
          (r"\b(?:Roe|Row|Ro) ?ha(?:yes|ze|zy|t)\b", "Rohaze"),
          (r"\b(?:all|oh) hot (?=Asian maps)", "Rohaze "),

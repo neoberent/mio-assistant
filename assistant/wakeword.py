@@ -47,6 +47,13 @@ def strip_name(text: str) -> str:
     return rest if re.search(r"\w", rest) else text
 
 
+def could_be_her_name(heard: str) -> bool:
+    """Is this short scrap worth asking Whisper again with her name as a hint? Her name misheard has come out as
+    "Emil?" and "Ré 1000"; with the hint nearly any scrap comes out as "Mio", so chatter isn't worth the GPU."""
+    words = re.findall(r"[a-z]+", _ascii(heard.lower()))
+    return any(re.fullmatch(GREETING, w) or "m" in w or re.search(r"[eiy][ou]$", w) for w in words)
+
+
 MODEL = MODELS_DIR / "kws" / "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 
 
@@ -160,7 +167,8 @@ class WakeWord:
                     checked = True
                     audio = np.concatenate(speech[: len(pre) + early + 6]).astype(np.float32) / 32768
                     heard = self.verify(audio) or ""
-                    if self.verify_hinted and 0 < len(_ascii(heard).split()) <= 2 and not heard_name(heard, self.confirm_re):
+                    if self.verify_hinted and 0 < len(_ascii(heard).split()) <= 2 and not heard_name(heard, self.confirm_re) \
+                            and could_be_her_name(heard):
                         # "Emil?", "Ré 1000": a word or two is often her name misheard; listen again with her
                         # name as a hint (it still has to come out as greeting + name)
                         heard = self.verify_hinted(audio) or ""
@@ -172,6 +180,7 @@ class WakeWord:
                         self.on_wake()
                         continue
                     near = len(_ascii(heard).split()) <= 2 or re.match(rf"\W*{GREETING}\b", _ascii(heard), re.I)
+                    near = near and not re.fullmatch(rf"\W*{NAME}\W*", _ascii(heard), re.I)  # the hint's usual echo
                     (log.info if near else log.debug)("not her name: %r", heard)  # near misses help tuning
                 if done:
                     speech = []

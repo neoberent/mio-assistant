@@ -54,7 +54,7 @@
   {"say": "open the froststrap github", "teach": [{"name": "open_best_match", "args": {"query": "froststrap github"}}]},
   {"say": "read the link i copied", "teach": [{"name": "read_clipboard_link", "args": {}}]},
   {"say": "is steam open", "teach": [{"name": "list_windows", "args": {}}], "ok": ["run_shell"]},
-  {"say": "switch to brave", "teach": [{"name": "focus_window", "args": {"query": "brave"}}]},
+  {"say": "switch to zen", "teach": [{"name": "focus_window", "args": {"query": "zen"}}]},
   {"say": "close discord completely", "teach": [{"name": "run_shell", "args": {"command": "pkill -i discord"}}]},
   {"say": "move this window to the other monitor", "teach": [{"name": "niri_action", "args": {"action": "move-window-to-monitor-left"}}]},
   {"say": "make this window float", "teach": [{"name": "niri_action", "args": {"action": "toggle-window-floating"}}]},
