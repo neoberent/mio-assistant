@@ -141,6 +141,32 @@ def voice_says_yes(heard: str) -> bool:
     return bool(YES.search(heard)) and not NO.search(heard) and len(words) <= 6 and set(words) <= ANSWER_WORDS
 
 
+# "Want me to install them?" has a yes or a no for an answer, so nothing else she hears counts as one
+OFFERED = re.compile(r"\b(want me to|should i|shall i|would you like|do you want)\b[^.?!]*\?\s*$", re.I)
+# what Whisper makes of silence and room noise
+NOT_SPEECH = {"you", "thank you", "thanks", "thanks for watching", "bye"}
+
+
+def answers_her(question: str, heard: str) -> bool:
+    """Is this an answer to her question, or just something the mic picked up (it also hears the speakers)?"""
+    words = re.findall(r"[a-z']+", heard.lower())
+    if not words or " ".join(words) in NOT_SPEECH:
+        return False
+    if OFFERED.search(question) and " or " not in question.lower():
+        return voice_says_yes(heard) or (bool(NO.search(heard)) and len(words) <= 4)
+    return len(words) <= 8
+
+
+# a plain statement about themselves: she learns it right away ("my pc is slow" isn't one, it waits for the session end)
+TELLS = re.compile(r"^\W*(?:(?:so|well|hey|and|also|by the way|btw)\W+)*(?:i'?m|i am|i (?:really )?(?:like|love|hate|play|"
+                   r"live|work|have|prefer|usually)|call me|my (?:name|(?:best )?friend|brother|sister|mom|mum|dad|"
+                   r"girlfriend|boyfriend|birthday|favou?rite))\b", re.I)
+
+
+def tells_about_self(text: str) -> bool:
+    return bool(TELLS.match(text)) and not text.rstrip().endswith("?")
+
+
 # her offer after a search: "Want me to open the top result?" / "Should I play the first video?"
 # "open the first video", "play the second one", "click the top result"
 PICK_RESULT = re.compile(r"(?:open|play|click(?: on)?|watch|start|put on|go to|take me to)(?: up)? (?:the |that )?"
@@ -200,6 +226,7 @@ class Assistant:
 
             self.learning.lexicon.set_domain(EXAMPLES + " ".join(f"{t.description} {json.dumps(t.params)}"
                                                                  for t in self.tools.tools.values()))
+        self._told: set[str] = set()  # said this session and already looked through for facts
         self._trace: list[dict] = []  # tool calls of the request in progress (local or Claude)
         self.last_src = "none"
         self._hints: list[str] = []   # unsure name fixes for the request in progress
@@ -293,7 +320,8 @@ class Assistant:
     def end_session(self):
         if self.memory.active():
             log.info("session ended, conversation forgotten")
-            spawn(self._learn_about_user(list(self.memory.turns)))
+            spawn(self._learn_about_user([t for t in self.memory.turns if t["user"] not in self._told]))
+        self._told.clear()
         self.memory.end_session()
         self.tools.forget_outside_text()
 
@@ -429,14 +457,31 @@ class Assistant:
             task.cancel()
             await asyncio.wait([task], timeout=1)
 
-    async def _interaction(self, text: str | None = None):
+    async def _hear_answer(self, reply: str) -> str:
+        """She just asked something: listen once, so the answer doesn't need "Hey Mio" first. → the answer, or ''."""
+        if not strip_tags(reply).rstrip().endswith("?") or self.gaming or self.player.stopped or \
+                not self.cfg.ptt.get("listen_after_question", True):
+            return ""
+        await self.set_state("listening")
+        await self.beep(True)  # awaited, unlike push-to-talk: the recording mustn't hear it
+        audio = await self.recorder.record()
+        if audio is None:
+            return ""
+        await self.beep(False)
+        await self.set_state("thinking")
+        heard = await self.stt.transcribe(audio)
+        log.info("heard after her question: %r", heard)
+        return heard if answers_her(strip_tags(reply), heard) else ""
+
+    async def _interaction(self, text: str | None = None, voice: bool | None = None):
         if self.dreamer:
             spawn(self.dreamer.stop("you called me"))
         loop_time = asyncio.get_running_loop().time()
         if loop_time - self._last_activity > self.cfg.brain.get("session_timeout_s", 600):
             self.end_session()  # e.g. pinned on screen but untouched for a long time
         self._last_activity = loop_time
-        voice = text is None
+        voice = text is None if voice is None else voice
+        answer = ""
         try:
             if text is None:
                 await self.set_state("listening")
@@ -479,8 +524,13 @@ class Assistant:
             from . import review
 
             review.log_request(text, reply, self.last_src, time.time() - started, voice, self._trace)
+            if tells_about_self(text):  # so "what do you know about me?" works straight away
+                self._told.add(text)
+                spawn(self._learn_about_user([{"user": text}]))
             if reply:
                 await self.say(reply)
+                if voice:
+                    answer = await self._hear_answer(reply)
         except Exception as e:
             log.exception("interaction failed")
             await self.say("Sorry, something went wrong.")
@@ -490,6 +540,8 @@ class Assistant:
             await self.hide(self.cfg.avatar.get("hide_after_s", 15))
             if self.gaming:
                 self._schedule_regame()
+        if answer:
+            await self._interaction(answer, voice=True)
 
     def _schedule_regame(self):
         """After using her mid-game, free the GPU again once she's been quiet for a minute."""
@@ -745,12 +797,13 @@ class Assistant:
                 return
             out = await self.local._structured(
                 "From what the user said to their voice "
-                "assistant, list lasting facts about the USER worth remembering for weeks: their friends and family "
-                "(with names), likes and dislikes, games and music they play, habits, upcoming plans (keep the "
+                "assistant, list lasting facts about the USER worth remembering for weeks: their age, job or school, "
+                "friends and family (with names), likes and dislikes, games and music they play, habits, upcoming plans (keep the "
                 "user's own time words like 'next weekend'), where they live or work. Write each as a short third-person fact "
                 "('Alex is the user's friend', 'The user likes lofi music'). Only what the user clearly said about "
                 "themselves; nothing about the assistant, no one-off commands ('play X', 'open Y', 'what's the "
-                "weather'), no passwords or codes. If there is nothing like that, return an empty list.",
+                "weather'), no passing moods ('I'm tired'), no passwords or codes. A short statement counts: 'I'm 25' → "
+                "'The user is 25'. If there is nothing like that, return an empty list.",
                 "\n".join(f"- {x}" for x in said[-10:]),
                 {"type": "object", "properties": {"facts": {"type": "array", "items": {"type": "string"}}},
                  "required": ["facts"]}, 200)

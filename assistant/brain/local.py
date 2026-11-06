@@ -436,8 +436,16 @@ class LocalBrain:
 
     async def _small_talk(self, text: str, context: str, history: list[dict] | None) -> str:
         """Not a request at all: answer like a friend, no tools, no Claude."""
+        known = [x.replace("Known about the user:", "Remembered from before (not happening now):")
+                 for x in context.splitlines() if x.startswith(("Known about the user", "Right now"))]
+        # examples work where "don't say you're just hanging out" didn't: it said so in 11 of 12 replies
         system = (f"{self.persona['style']}\nThe user is just chatting, not asking for anything. Reply warmly in one "
-                  "or two short sentences. Don't offer or claim to do anything.\n" + clock.now_line())
+                  "or two short sentences, like a friend who knows them. Don't offer or claim to do anything, and "
+                  "leave out the date, the time of day and the weather. Remembered things are about their life in "
+                  "general; only the 'Right now' line says what they are doing. Use one detail if it fits, never "
+                  "read them out.\nHow you sound:\n- \"Not much! Is that build still giving you trouble?\"\n"
+                  "- \"I'm good! Bit bored, tell me something fun.\"\n- \"Hi hi! Good to hear from you.\""
+                  + "".join(f"\n{x}" for x in known))
         msg = await self._chat([{"role": "system", "content": system}, *(history or [])[-6:],
                                 {"role": "user", "content": text}], None, False)
         return clean_reply((msg.get("content") or "").strip())

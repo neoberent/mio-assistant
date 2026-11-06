@@ -36,6 +36,10 @@ WANTS_SILENCE = re.compile(r"^\W*(stop|shut up|be quiet|quiet)\W*$", re.I)
 # said right after a reply: she got the last one wrong
 CORRECTED = re.compile(r"^\W*(no+\b|nope|wrong|not that|that'?s (wrong|not)|i said|i meant|i didn'?t (say|mean|ask)|"
                        r"you (misheard|got it wrong)|stop)", re.I)
+# "…in five minutes": a time usually means something should happen then (shared with brain/local.py)
+TIMED = re.compile(r"\bin (?:an? |a few |a couple (?:of )?|half an? |\d+ ?|(?:(?:twenty|thirty|forty|fifty)[- ]?(?:five)?|"
+                   r"one|two|three|four|five|six|seven|eight|nine|ten|fifteen) )(?:secs?|seconds?|mins?|minutes?|hours?)\b",
+                   re.I)
 
 
 def log_request(text: str, reply: str, src: str, secs: float, voice: bool, trace: list[dict]):
@@ -88,6 +92,8 @@ def problems(rows: list[dict]) -> list[tuple[dict, list[str]]]:
             why.append("said nothing")
         elif LOST.search(r["reply"]):
             why.append("got lost")
+        if r.get("src") == "local" and not r.get("tools") and TIMED.search(r["text"]):
+            why.append("a time in it, but nothing was set")  # "…in five minutes to take my fries out" → "Sounds good!"
         if r.get("src") == "claude":
             why.append("needed Claude")
         if r.get("src") == "ask":

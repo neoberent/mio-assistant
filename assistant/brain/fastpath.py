@@ -42,6 +42,12 @@ def _noted(tools: ToolBox, args: dict, result: str):
         tools.on_result("timer", args, result)
 
 
+TIME_FOR_PURPOSE = re.compile(r"\bin (?:an? |a few |a couple (?:of )?|half an? |\d+ ?|[a-z]+(?:[ -]five)? )"
+                              r"(?:secs?|seconds?|mins?|minutes?|hours?) to \w.*$")
+ASKS_OR_ORDERS = re.compile(r"(?:what|when|where|why|who|how|which|is|are|can|could|would|will|do|does|did|should|please|"
+                            r"remind|set|make|create|add|open|launch|start|play|close|run|send|tell|show)\b")
+
+
 async def _timers(t: str, tools: ToolBox) -> Result | None:
     """'timer 5 minutes', 'remind me in 20 minutes to …', 'remind me to … at 6 pm', 'cancel my timer', 'how long left'."""
     from .. import timers as tm
@@ -71,6 +77,11 @@ async def _timers(t: str, tools: ToolBox) -> Result | None:
         rest = re.sub(r"^for (?=(?:an? |half an? )?[\w.-]+ (?:seconds?|minutes?|hours?|mins?|secs?|hrs?)\b)", "in ",
                       m[1])
         t = "remind me " + re.sub(r"^for (?=\d|noon|midnight)", "at ", rest)
+    # a time with a purpose, whatever came before it: Whisper heard "remind me" as "we might be" and she only said
+    # "Sounds good!" (fries, 2026-11-03). The model can't be trusted to tell (1 of 5 right on this sentence, and it set
+    # timers for "I'll be back in five minutes"). The reply says what was set, so a wrong guess gets noticed.
+    if not ASKS_OR_ORDERS.match(t) and (m := TIME_FOR_PURPOSE.search(t)):
+        t = f"remind me {m[0]}"
     now = dt.datetime.now()
     if m := re.fullmatch(r"remind me (.+)", t):
         rest = m[1]

@@ -103,6 +103,11 @@ class Player:
     def stop(self):
         self._stop.set()
 
+    @property
+    def stopped(self) -> bool:
+        """Told to stop since the last sound started."""
+        return self._stop.is_set()
+
     def play_blocking(self, audio: np.ndarray, sr: int, on_start=None) -> bool:
         """Returns False if interrupted."""
         with self._lock:

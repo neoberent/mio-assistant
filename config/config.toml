@@ -168,6 +168,7 @@ mic = false                   # also record your microphone
 
 [ptt]
 chime = true
+listen_after_question = true  # after she asks you something by voice, listen once so you can answer without "Hey Mio"
 
 [security]
 # Shell commands whose first word is here run without asking.
