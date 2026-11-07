@@ -45,7 +45,7 @@ CATEGORIES: dict[str, tuple[str, list[str]]] = {
     "games": (r"\b(game|games|play|roblox|sober|froststrap|steam|launch|patch|patch ?notes|sale|deals?|"
               r"wishlist|discount|price|cost|cheap|clip|replay|record|gameplay|fire up|season|update notes|"
               r"dota|elden ring|counter[ -]?strike|marvel rivals|call of duty|modern warfare)\b",
-              ["launch_game", "steam_library", "game_news", "game_price", "clip"]),
+              ["launch_game", "steam_library", "game_news", "game_price", "clip", "upload_clip"]),
     "phone": (r"\b(phone|fone|iphone|mobile|handy)\b", ["phone", "clipboard"]),
     "media": (r"\b(volume|vol|volum|louder|quieter|loud|quiet|sound|mute|silence|shh+|notch|crank( it)?|"
               r"turn it (up|down)|bump it|music|song|track|play|pause|resume|skip|spotify|playing)\b",
@@ -179,6 +179,7 @@ EXAMPLES = """Examples of good tool use:
 - "what's in this picture?" / "what game is this?" / "what am I looking at?" → screen(question=...)
 - "type minecraft shaders in the search bar and press enter" → type_text(text="minecraft shaders", submit=true)
 - "find my roblox clips" → find_files(query="roblox", kind="video"); "what's in my clips folder?" → list_files(path="~/Videos/Clips")
+- "upload the clip" / "share my last clip" → upload_clip (opens the window, the user confirms there)
 - "what routines do I have?" → routine(action="list")
 - "yes" after you offered something → do exactly what you offered, now."""
 

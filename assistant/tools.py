@@ -1082,6 +1082,18 @@ class ToolBox:
             path, info = await self.clipper.save(seconds)
             return f"saved the last {info} to {path}" if path else f"couldn't save the clip: {info}"
 
+        @self._add("upload_clip", "Open the window where the user names their newest clip and uploads it as a link for "
+                   "Discord ('upload the clip', 'share my last clip'). The user confirms there; nothing is sent before that.", {}, [])
+        async def upload_clip() -> str:
+            if self.clipper is None:
+                return "clipping isn't set up"
+            from .clipshare import ShareError, load_settings
+            try:
+                load_settings()
+            except ShareError as e:
+                return str(e)
+            return await self.clipper.open_upload_window()
+
         async def phone_id() -> tuple[str | None, str]:
             code, out = await sh("kdeconnect-cli", "--list-available", "--id-name-only", limit=None)
             dev_re = re.compile(r"^([0-9A-Za-z_-]{16,})\s+(.+)$", re.M)  # "<id> <name>"; skips "0 devices found"

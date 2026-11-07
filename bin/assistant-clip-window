@@ -1,0 +1,7 @@
+#!/bin/sh
+# Upload window for a clip: system Python + GTK4 + gtk4-layer-shell (must be preloaded before libwayland).
+ROOT="$(dirname "$(dirname "$(readlink -f "$0")")")"
+unset LD_LIBRARY_PATH  # the daemon's CUDA libraries are not for this one
+export LD_PRELOAD="/usr/lib/libgtk4-layer-shell.so${LD_PRELOAD:+:$LD_PRELOAD}"
+export GSK_RENDERER="${GSK_RENDERER:-gl}"
+exec python3 "$ROOT/avatar/clip_window.py" "$@"

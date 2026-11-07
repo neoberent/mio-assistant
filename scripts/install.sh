@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
 UNITS="$CFG/systemd/user"
 
-need=(uv gtk4-layer-shell webkitgtk-6.0 python-gobject python-cairo wtype wl-clipboard playerctl grim libnotify portaudio)
+need=(uv gtk4-layer-shell webkitgtk-6.0 python-gobject python-cairo wtype wl-clipboard playerctl grim libnotify portaudio gst-plugins-good gst-libav)
 missing=()
 for p in "${need[@]}"; do pacman -Q "$p" &>/dev/null || missing+=("$p"); done
 if ((${#missing[@]})); then

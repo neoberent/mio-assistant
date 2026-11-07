@@ -16,12 +16,21 @@ import shutil
 import time
 from pathlib import Path
 
-from .config import RUNTIME
+from .config import PROJECT_DIR, RUNTIME
 
 log = logging.getLogger("clips")
 
 SOCK = RUNTIME / "mio-gsr.sock"
 MAX_LAG = 20  # seconds between "clip that" being said and the save, added so the moment isn't cut off
+WINDOW = PROJECT_DIR / "bin" / "assistant-clip-window"
+
+
+def latest_clip(folder: Path) -> Path | None:
+    """The newest clip by time, so it also works after a restart and for clips saved by hotkey."""
+    try:
+        return max(folder.glob("*.mp4"), key=lambda p: p.stat().st_mtime, default=None)
+    except OSError:
+        return None
 
 
 class Clipper:
@@ -36,6 +45,7 @@ class Clipper:
         self.started = 0.0
         self.asked_at = 0.0  # when the user started speaking; set by the daemon
         self._lock = asyncio.Lock()
+        self.window: asyncio.subprocess.Process | None = None
 
     def available(self) -> bool:
         return shutil.which("gpu-screen-recorder") is not None
@@ -142,3 +152,19 @@ class Clipper:
             dst = src
         log.info("clip saved: %s (%d s)", dst, secs)
         return dst, f"{secs} seconds"
+
+    async def open_upload_window(self) -> str:
+        """Opens the window for the newest clip. Nothing is uploaded until the user presses Upload there."""
+        if self.window is not None and self.window.returncode is None:
+            return "the upload window is already open"
+        clip = latest_clip(self.folder)
+        if clip is None:
+            return f"there are no clips in {self.folder} yet"
+        env = {k: v for k, v in os.environ.items() if k != "LD_LIBRARY_PATH"}
+        self.window = await asyncio.create_subprocess_exec(str(WINDOW), str(clip), env=env, stdout=asyncio.subprocess.DEVNULL,
+                                                           stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+        await asyncio.sleep(0.5)  # a window that can't start ends right away: say so instead of "it's open"
+        if self.window.returncode not in (None, 0):
+            return "the upload window couldn't open"
+        log.info("upload window for %s", clip.name)
+        return f"opened the upload window for {clip.name}"

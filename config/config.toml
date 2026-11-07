@@ -165,6 +165,10 @@ fps = 60
 codec = "h264"                # h264 plays everywhere (Discord, phones); hevc/av1 = smaller files
 bitrate_kbps = 50000          # 50 Mbps: near-lossless at 1080p60
 mic = false                   # also record your microphone
+# "Upload the clip": a link that plays inside Discord. Keys are in ~/.config/assistant/clip-share.env (docs/README.md)
+share_cap_mb = 120            # Discord played 123 MB and refused 197 MB; clips over this are re-encoded to fit
+share_max_kbps = 32000        # highest bitrate when re-encoding
+share_keep_gb = 9             # oldest shared clips are deleted above this (B2's free storage is 10 GB)
 
 [ptt]
 chime = true

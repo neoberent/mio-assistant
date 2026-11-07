@@ -475,6 +475,17 @@ snapshot from the install step: `snapper -c root list` → `sudo snapper -c root
   RAM). "Clip that" saves the last 30 s, "clip the last 2 minutes" more; **Alt+F10** does it silently (chime +
   notification). The seconds it took you to say it are added, so the moment isn't cut off. Clips go to
   `~/Videos/Clips/<Game> <date time>.mp4`. Settings in `[clips]` (`always = true` records outside games too).
+- **Upload the clip** — "upload the clip" (or `assistant upload`) opens a small window with your newest clip:
+  watch it, name it, choose whether it keeps its sound, press Upload. The link lands in your clipboard and plays
+  inside Discord. Clips stay 1080p60 and under 120 MB: smaller ones aren't re-encoded, larger ones are compressed on the
+  GPU, and originals are never touched. Anyone with a link can watch the clip, and the sound can contain voice chat.
+  The oldest shared clips are deleted above 9 GB, and their links stop working. Free setup, no card needed:
+  1. On [Backblaze B2](https://www.backblaze.com/sign-up/b2-cloud-storage-backup-archive) create a **private** bucket
+     with lifecycle "Keep only the last version", then two application keys for it: Read and Write, and Read Only.
+  2. Put them in `~/.config/assistant/clip-share.env` (`chmod 600`):
+     `B2_BUCKET`, `B2_ENDPOINT`, `B2_WRITE_KEY_ID`, `B2_WRITE_KEY`, `B2_READ_KEY_ID`, `B2_READ_KEY`, `CLIP_BASE_URL`.
+  3. In `worker/`, run `npx wrangler login` and `npx wrangler deploy`, then give the Worker `B2_BUCKET`, `B2_ENDPOINT`,
+     `B2_READ_KEY_ID` and `B2_READ_KEY` with `npx wrangler secret put NAME`. `CLIP_BASE_URL` is the address it prints.
 - **Timers and reminders** — "timer 10 minutes", "pizza timer for 12 minutes", "remind me in 20 minutes to …",
   "remind me to call mom at 6 pm", "tomorrow at 9", "set an alarm for 7 am", "how long is left", "cancel the
   pasta timer" / "cancel all reminders". Zero tokens; kept in `~/.local/state/assistant/timers.json`, so they

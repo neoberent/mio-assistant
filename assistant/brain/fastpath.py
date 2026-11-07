@@ -396,6 +396,14 @@ async def handle(text: str, tools: ToolBox, usage=None, last_reply: str = "") ->
             return Result(random.choice(["Clipped!", "Got it, clip saved!", "Saved that one!"]))
         return Result(r[0].upper() + r[1:] + ".")
 
+    # "upload the clip": opens the window, where the user names it and presses Upload
+    if re.fullmatch(r"(?:upload|share|post) (?:the |that |this |my )?(?:last |latest |newest |recent )?(?:clip|klip|replay)"
+                    r"(?: (?:for me|to discord|i (?:just )?(?:made|took|saved)))?", t):
+        r = await tools.call("upload_clip", {})
+        if r.startswith("opened"):
+            return Result("Here it is. Name it and hit upload.")
+        return Result("It's already open." if "already open" in r else r[0].upper() + r[1:] + ".")
+
     if r := await _browser(t, tools):
         return r
     if r := await _music(t, tools):

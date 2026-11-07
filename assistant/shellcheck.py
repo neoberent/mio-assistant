@@ -14,7 +14,8 @@ PUNCTUATION = set(";&|<>()")
 # names under home whose contents are nobody's business but the user's
 SECRETS = (".ssh", ".gnupg", ".aws", ".kube", ".docker", ".netrc", ".git-credentials", ".npmrc", ".pypirc", ".pgpass",
            ".password-store", ".claude", ".zen", ".mozilla", ".config/BraveSoftware", ".config/chromium",
-           ".config/google-chrome", ".config/gh", ".config/rclone", ".config/assistant/env", ".local/share/keyrings",
+           ".config/google-chrome", ".config/gh", ".config/rclone", ".config/assistant/env", ".config/assistant/clip-share.env",
+           ".config/.wrangler", ".local/share/keyrings",
            ".local/state/assistant/riff-token")
 # these print what's inside the files they are given
 READERS = {"cat", "head", "tail", "grep", "sort", "uniq", "cut"}

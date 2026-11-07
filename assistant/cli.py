@@ -7,6 +7,7 @@
   assistant say TEXT       speak TEXT
   assistant ask TEXT       send a request as text (skips speech-to-text)
   assistant clip [SECS]     save the last SECS (default 30) of gameplay to the clips folder
+  assistant upload         open the window to upload your newest clip as a link for Discord
   assistant forget         clear conversation memory
   assistant status         show state and today's Claude usage
   assistant escalations    what Mio couldn't do locally and sent to Claude (last 7 days)
@@ -35,7 +36,10 @@ def main():
 
         print(review.report(int(rest) if rest.isdigit() else 1))
         return
-    if cmd == "scan":  # assistant scan [quick|status|stop|results|restore NAME]: through the daemon's scanner
+    if cmd == "upload":  # the same as saying "upload the clip"
+        args, cmd, rest = [], "tool", ""
+        req = {"cmd": "tool", "name": "upload_clip", "args": {}}
+    elif cmd == "scan":  # assistant scan [quick|status|stop|results|restore NAME]: through the daemon's scanner
         action, _, items = rest.partition(" ")
         action = action or "start"
         if action == "report":
