@@ -1186,7 +1186,7 @@ class Assistant:
         if self.cfg.gamemode.get("enabled", True):
             from .gamemode import GameMode
 
-            self.gamemode = GameMode(self.cfg.gamemode, self._on_gamemode)
+            self.gamemode = GameMode(self.cfg.gamemode, self._on_gamemode, self.clipper.game_moved)
             supervise(self.gamemode.run, "game mode")
         if self.cfg.clips.get("enabled", True) and self.cfg.clips.get("always", False):
             spawn(self.clipper.start())

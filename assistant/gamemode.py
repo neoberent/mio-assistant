@@ -11,6 +11,8 @@ import json
 import logging
 import re
 
+from .aio import spawn
+
 log = logging.getLogger("gamemode")
 
 DEFAULT_GAMES = r"^(steam_app_\d+|org\.vinegarhq\.Sober|gamescope|.*\.exe|minecraft.*|com\.mojang.*|" \
@@ -18,9 +20,10 @@ DEFAULT_GAMES = r"^(steam_app_\d+|org\.vinegarhq\.Sober|gamescope|.*\.exe|minecr
 
 
 class GameMode:
-    def __init__(self, cfg: dict, on_change):
+    def __init__(self, cfg: dict, on_change, on_moved=None):
         self.pattern = re.compile(cfg.get("game_app_ids", DEFAULT_GAMES), re.I)
         self.on_change = on_change  # async callable(active: bool, game: str)
+        self.on_moved = on_moved  # async callable(): a game window or a workspace changed place
         self.active = False
         self.game = ""
 
@@ -57,28 +60,36 @@ class GameMode:
             proc = await asyncio.create_subprocess_exec("niri", "msg", "-j", "event-stream",
                                                         stdout=asyncio.subprocess.PIPE,
                                                         stderr=asyncio.subprocess.DEVNULL, limit=1 << 22)
-            games: set[int] = set()
+            games: dict[int, int | None] = {}  # window id -> workspace id
             async for line in proc.stdout:
-                if not line.startswith(b'{"Window'):
+                if not line.startswith((b'{"Window', b'{"WorkspacesChanged')):
                     continue  # cheap pre-filter; animated titles fire these constantly
                 try:
                     ev = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                changed = False
+                changed = moved = False
                 if "WindowsChanged" in ev:
-                    now = {w["id"] for w in ev["WindowsChanged"]["windows"] if self.pattern.match(w.get("app_id") or "")}
-                    changed, games = now != games, now
+                    now = {w["id"]: w.get("workspace_id") for w in ev["WindowsChanged"]["windows"]
+                           if self.pattern.match(w.get("app_id") or "")}
+                    changed = now.keys() != games.keys()
+                    moved = not changed and now != games
+                    games = now
                 elif "WindowOpenedOrChanged" in ev:
                     w = ev["WindowOpenedOrChanged"]["window"]
-                    if self.pattern.match(w.get("app_id") or "") and w["id"] not in games:
-                        games.add(w["id"])
-                        changed = True
+                    if self.pattern.match(w.get("app_id") or ""):
+                        changed = w["id"] not in games
+                        moved = not changed and games[w["id"]] != w.get("workspace_id")
+                        games[w["id"]] = w.get("workspace_id")
                 elif "WindowClosed" in ev and ev["WindowClosed"]["id"] in games:
-                    games.discard(ev["WindowClosed"]["id"])
+                    del games[ev["WindowClosed"]["id"]]
                     changed = True
+                elif "WorkspacesChanged" in ev:  # a whole workspace can be moved to the other monitor
+                    moved = bool(games)
                 if changed:
                     await self._set(bool(games))
+                if moved and self.on_moved:
+                    spawn(self.on_moved())
             await proc.wait()
             await asyncio.sleep(5)  # niri restarted? reconnect
 
