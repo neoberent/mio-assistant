@@ -19,7 +19,7 @@ from pathlib import Path
 
 from . import browse, config
 from .aio import spawn, supervise
-from .audio import Player, Recorder, chime, envelope
+from .audio import Player, Recorder, chime, envelope, mic_used_elsewhere
 from .brain import fastpath
 from .brain.claude import ClaudeBrain, ClaudeError
 from .brain.local import Escalate, LocalBrain
@@ -154,7 +154,25 @@ def answers_her(question: str, heard: str) -> bool:
         return False
     if OFFERED.search(question) and " or " not in question.lower():
         return voice_says_yes(heard) or (bool(NO.search(heard)) and len(words) <= 4)
+    if " or " in question.lower():  # "the tab or the whole window?": the answer names one of the choices
+        return len(words) <= 8 and bool(_content(heard) & _content(question))
     return len(words) <= 8
+
+
+STOPWORDS = {"the", "a", "an", "is", "are", "you", "your", "this", "that", "it", "about", "or", "and", "do", "want",
+             "me", "to", "of", "for", "with", "like", "what", "which", "did", "mean", "just", "some", "else", "bro"}
+
+
+def _content(text: str) -> set[str]:
+    return {w.rstrip("s") for w in re.findall(r"[a-z']+", text.lower()) if len(w) > 2 and w not in STOPWORDS}
+
+
+def needs_answer(question: str, src: str) -> bool:
+    """Only a real question waits for an answer: an offer, "this or that?", or her asking what you meant.
+    Small talk that happens to end in "?" ("You good?", "What are you up to today?") doesn't."""
+    question = question.rstrip()
+    last = re.split(r"(?<=[.!?])\s+", question)[-1].lower()  # "…weather radar or something else. You good?"
+    return question.endswith("?") and (bool(OFFERED.search(question)) or " or " in last or src == "ask")
 
 
 # a plain statement about themselves: she learns it right away ("my pc is slow" isn't one, it waits for the session end)
@@ -245,6 +263,7 @@ class Assistant:
 
         self.timers = Timers(config.STATE_DIR / "timers.json", self._timer_due)
         self.tools.timers = self.timers
+        self.tools.updates_done = self._updates_done
         from .clips import Clipper
 
         self.clipper = Clipper(self.cfg.clips)
@@ -457,10 +476,18 @@ class Assistant:
             task.cancel()
             await asyncio.wait([task], timeout=1)
 
-    async def _hear_answer(self, reply: str) -> str:
-        """She just asked something: listen once, so the answer doesn't need "Hey Mio" first. → the answer, or ''."""
-        if not strip_tags(reply).rstrip().endswith("?") or self.gaming or self.player.stopped or \
+    async def _hear_answer(self, reply: str, chained: bool = False) -> str:
+        """She just asked something: listen once, so the answer doesn't need "Hey Mio" first. → the answer, or ''.
+        After a reply to such an answer only a plain yes/no offer listens again, so she never keeps a
+        conversation going with whoever is talking in the room (2026-11-13: three replies to friends on a call)."""
+        question = strip_tags(reply).rstrip()
+        if not needs_answer(question, self.last_src) or self.gaming or self.player.stopped or \
                 not self.cfg.ptt.get("listen_after_question", True):
+            return ""
+        if chained and not (OFFERED.search(question) and " or " not in question.lower()):
+            return ""
+        if await asyncio.to_thread(mic_used_elsewhere):  # on a call: the others would answer for you
+            log.info("not listening after her question: another app is using the mic")
             return ""
         await self.set_state("listening")
         await self.beep(True)  # awaited, unlike push-to-talk: the recording mustn't hear it
@@ -473,7 +500,7 @@ class Assistant:
         log.info("heard after her question: %r", heard)
         return heard if answers_her(strip_tags(reply), heard) else ""
 
-    async def _interaction(self, text: str | None = None, voice: bool | None = None):
+    async def _interaction(self, text: str | None = None, voice: bool | None = None, chained: bool = False):
         if self.dreamer:
             spawn(self.dreamer.stop("you called me"))
         loop_time = asyncio.get_running_loop().time()
@@ -530,7 +557,7 @@ class Assistant:
             if reply:
                 await self.say(reply)
                 if voice:
-                    answer = await self._hear_answer(reply)
+                    answer = await self._hear_answer(reply, chained)
         except Exception as e:
             log.exception("interaction failed")
             await self.say("Sorry, something went wrong.")
@@ -541,7 +568,7 @@ class Assistant:
             if self.gaming:
                 self._schedule_regame()
         if answer:
-            await self._interaction(answer, voice=True)
+            await self._interaction(answer, voice=True, chained=True)
 
     def _schedule_regame(self):
         """After using her mid-game, free the GPU again once she's been quiet for a minute."""
@@ -1081,6 +1108,14 @@ class Assistant:
         await self.set_state("speaking")
         await self._say_then_idle(text)
 
+    async def _updates_done(self, text: str):
+        """The update terminal finished: say how it went (and whether to restart), not over a conversation."""
+        spawn(sh("notify-send", "-a", "Assistant", "Mio: update finished", text))
+        while self.state != "idle" or self.gaming:
+            await asyncio.sleep(2)
+        await self.set_state("speaking")
+        await self._say_then_idle(text)
+
     def _on_wake(self):
         if self.state == "idle":
             spawn(self.ptt())
@@ -1176,6 +1211,9 @@ class Assistant:
         if self.dreamer:
             supervise(self.dreamer.run, "dreamer")
         supervise(self.timers.run, "timers")
+        from . import statebackup
+
+        supervise(statebackup.run_daily, "state backup")
         from . import review
 
         supervise(review.nightly, "nightly review")

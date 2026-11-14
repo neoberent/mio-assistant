@@ -25,6 +25,9 @@ FIXES = [(r"\b(?:Miu|Meo|Miyo|Mijo)\b", "Mio"), (r"\bPatsune\b", "Hatsune"), (r"
          (r"\b(open (?:it|them|this|that) in) Cade\b", r"\1 Kate"), (r"\bTrimax\b", "Trymacs"),
          (r"\b(?:Roe|Row|Ro) ?ha(?:yes|ze|zy|t)\b", "Rohaze"),
          (r"\b(?:all|oh) hot (?=Asian maps)", "Rohaze "),
+         # "Remind me in five minutes" (2026-11-14: "You might meet in five minutes." → a made-up meeting)
+         (r"(?i)^\W*(?:you |we )?(?:might|my|mind) ?(?:meet|meat|mean|me) (?=in (?:a|an|one|two|three|four|five|six|seven|"
+          r"eight|nine|ten|fifteen|twenty|thirty|\d+)\b)", "Remind me "),
          # the Riff music player: "open RIV", "play it on Reef", "in rift"
          (r"\bRIV\b", "Riff"),
          (r"(?i)\b(open|launch|start|close|in|on|to|into|from|with|pause|resume) (?:the )?(?:riv|rif|reef|rift|ref|riffs?)\b",

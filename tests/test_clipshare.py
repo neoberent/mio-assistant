@@ -138,3 +138,17 @@ def test_the_tool_says_so_when_keys_are_missing(tmp_path, monkeypatch):
     box = ToolBox({"shell_allow": [], "shell_deny": []}, _no)
     box.clipper = clips.Clipper({"folder": str(tmp_path)})
     assert "isn't set up" in asyncio.run(box.call("upload_clip", {}))
+
+
+@pytest.mark.parametrize("said", ["Uploaded", "upload it", "okay, upload that one", "share it"])
+def test_right_after_a_clip_upload_it_is_enough(said):
+    """2026-11-08: "Clip the last 10 seconds." then Whisper heard "Uploaded" and the model took 8 s."""
+    tools = _tools("opened the upload window for x.mp4")
+    result = asyncio.run(fastpath.handle(said, tools, last_reply="Got it, clip saved!"))
+    assert tools.called == ["upload_clip"] and "upload" in result.reply
+
+
+def test_upload_it_without_a_clip_just_before_is_not_a_clip():
+    tools = _tools("opened the upload window for x.mp4")
+    asyncio.run(fastpath.handle("upload it", tools, last_reply="Here's the page about homework."))
+    assert "upload_clip" not in tools.called

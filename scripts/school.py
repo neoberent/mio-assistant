@@ -50,8 +50,23 @@ def passed(item: dict, trace: list[dict]) -> bool:
     return True
 
 
-async def main():
-    quiz_only = "--quiz" in sys.argv
+def parse_args(argv: list[str]):
+    """Unknown flags (--help, typos) stop here, before assistantd is stopped and a full school run starts."""
+    import argparse
+
+    p = argparse.ArgumentParser(description="Mio's school: lessons, grading and quizzes (stops assistantd while it "
+                                            "runs, then starts it again).")
+    p.add_argument("curriculum", nargs="?", type=Path, default=CURRICULUM,
+                   help=f"lessons + quiz as JSON (default: {CURRICULUM.name})")
+    p.add_argument("--quiz", action="store_true", help="only the quiz, nothing is learned")
+    args = p.parse_args(argv)
+    if args.curriculum.suffix != ".json" or not args.curriculum.is_file():
+        p.error(f"not a curriculum file: {args.curriculum}")
+    return args
+
+
+async def main(args):
+    quiz_only = args.quiz
     running = subprocess.run(["systemctl", "--user", "is-active", "-q", "assistantd"]).returncode == 0
     if running:  # it keeps the learned data in memory and would overwrite what school writes
         subprocess.run(["systemctl", "--user", "stop", "assistantd"])
@@ -68,7 +83,7 @@ async def main():
         a.learning.lexicon.from_tool = lambda *_a, **_k: None  # fake results ("… by Phonk") aren't real names
         a._log_escalation = lambda *_a: None  # her real escalation log is for real use
         stub(a)
-        path = next((Path(x) for x in sys.argv[1:] if x.endswith(".json")), CURRICULUM)
+        path = args.curriculum
         cur = json.loads(path.read_text())
         record = a.learning.skills.record
 
@@ -234,4 +249,4 @@ def stub(a):
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main(parse_args(sys.argv[1:])))

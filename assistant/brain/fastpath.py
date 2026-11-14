@@ -397,8 +397,12 @@ async def handle(text: str, tools: ToolBox, usage=None, last_reply: str = "") ->
         return Result(r[0].upper() + r[1:] + ".")
 
     # "upload the clip": opens the window, where the user names it and presses Upload
+    # right after "clip that", "upload it" is enough (2026-11-08 Whisper wrote "Uploaded" and the model took 8 s)
+    just_clipped = re.match(r"(?:clipped|got it, clip saved|saved that one|saved, but i only had)", last_reply.strip().lower())
     if re.fullmatch(r"(?:upload|share|post) (?:the |that |this |my )?(?:last |latest |newest |recent )?(?:clip|klip|replay)"
-                    r"(?: (?:for me|to discord|i (?:just )?(?:made|took|saved)))?", t):
+                    r"(?: (?:for me|to discord|i (?:just )?(?:made|took|saved)))?", t) or \
+            (just_clipped and re.fullmatch(r"(?:(?:okay|ok|now|and|yes|yeah),? )?(?:upload(?:ed)?|share|post)(?: (?:it|that|this|"
+                                           r"that one|this one))?(?: (?:now|please|for me|to discord))?", t)):
         r = await tools.call("upload_clip", {})
         if r.startswith("opened"):
             return Result("Here it is. Name it and hit upload.")

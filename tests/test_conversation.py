@@ -41,6 +41,8 @@ def _listener(monkeypatch, heard="Yes.", audio=object()):
     a = _assistant(monkeypatch)
     a.cfg.ptt = {}
     a.recordings = 0
+    a.last_src = "local"
+    monkeypatch.setattr(daemon, "mic_used_elsewhere", lambda: False)
 
     async def record():
         a.recordings += 1
@@ -88,6 +90,45 @@ async def test_she_does_not_listen_after_you_stopped_her_mid_question(monkeypatc
     a = _listener(monkeypatch)
     a.player = Player()
     a.player.stop()
+    assert await a._hear_answer(OFFER) == ""
+    assert a.recordings == 0
+
+
+RADAR = "Gotcha! Are you talking about weather radar, or is this about something else like a game feature? " \
+        "Want me to check the weather for you?"
+
+
+@pytest.mark.parametrize("question, src, want", [
+    (OFFER, "fast", True),
+    (EITHER_OR, "local", True),
+    (OPEN_QUESTION, "ask", True),  # she asked what you meant
+    # small talk that ends in "?" doesn't wait for an answer
+    ("Hey! I was just asking if you wanted weather radar or something else. You good?", "local", False),
+    ("Oh! That's cool. What are you up to today?", "local", False),
+    ("Opening Prism Launcher!", "fast", False),
+])
+def test_which_questions_wait_for_an_answer(question, src, want):
+    assert daemon.needs_answer(question, src) is want
+
+
+def test_an_either_or_answer_names_a_choice():
+    """2026-11-13: friends on a call 'answered' her radar question."""
+    assert not daemon.answers_her(RADAR, "What have you guys said, bro?")
+    assert daemon.answers_her(RADAR, "the game")
+    assert daemon.answers_her(RADAR, "weather")
+
+
+async def test_she_does_not_listen_again_after_an_answer_unless_it_is_a_yes_no_offer(monkeypatch):
+    a = _listener(monkeypatch, heard="the game")
+    assert await a._hear_answer(EITHER_OR, chained=True) == ""
+    assert a.recordings == 0
+    a = _listener(monkeypatch, heard="Yes.")
+    assert await a._hear_answer(OFFER, chained=True) == "Yes."
+
+
+async def test_she_does_not_listen_while_you_are_on_a_call(monkeypatch):
+    a = _listener(monkeypatch)
+    monkeypatch.setattr(daemon, "mic_used_elsewhere", lambda: True)
     assert await a._hear_answer(OFFER) == ""
     assert a.recordings == 0
 

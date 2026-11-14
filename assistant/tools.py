@@ -256,6 +256,8 @@ class ToolBox:
         self.lookup = lookup or {}
         self.on_tool: Callable[[str, dict], Awaitable[None]] | None = None  # e.g. show "Searching…" bubble
         self.on_result: Callable[[str, dict, str], None] | None = None     # e.g. session memory
+        self.updates_done: Callable[[str], Awaitable[None]] | None = None  # the daemon speaks the update result
+        self._update_watch: asyncio.Task | None = None
         self.knowledge = None  # assistant.knowledge.Knowledge, set by the daemon
         self.timers = None  # assistant.timers.Timers, set by the daemon
         self.clipper = None  # assistant.clips.Clipper, set by the daemon
@@ -498,9 +500,9 @@ class ToolBox:
 
     # ── tools ───────────────────────────────────────────────────────────────
     def _register(self):
-        async def open_terminal(title: str, command: str) -> str:
+        async def open_terminal(title: str, command: str, script: str = "") -> str:
             """Runs an interactive command in a new kitty window so the user sees it and answers prompts."""
-            script = f"{command}; echo; read -r -p 'Done. Press Enter to close this window.' _"
+            script = script or f"{command}; echo; read -r -p 'Done. Press Enter to close this window.' _"
             code, out = await sh("niri", "msg", "action", "spawn", "--", "kitty", "--title", title,
                                  "bash", "-c", script)
             return "opened" if code == 0 else f"failed: {out}"
@@ -859,8 +861,13 @@ class ToolBox:
         @self._add("install_updates", "Install all pending system updates (repos + AUR). Opens a new terminal "
                    "window running paru -Syu where the user reviews the list and types their password.", {}, [])
         async def install_updates() -> str:
+            from . import updates
+
             cmd = "paru -Syu" if shutil.which("paru") else ("yay -Syu" if shutil.which("yay") else "sudo pacman -Syu")
-            r = await open_terminal("System update", cmd)
+            status, since = updates.status_file(), dt.datetime.now().astimezone()
+            r = await open_terminal("System update", cmd, updates.terminal_script(cmd, status))
+            if r == "opened" and self.updates_done:  # she says how it went once it's finished
+                self._update_watch = asyncio.create_task(updates.watch(status, since, self.updates_done))
             return (f"Opened a terminal running '{cmd}'. The user still has to confirm and enter their password "
                     "there; nothing is installed until they do.") if r == "opened" else r
 

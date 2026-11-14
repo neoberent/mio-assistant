@@ -146,3 +146,26 @@ def envelope(audio: np.ndarray, sr: int, fps: int = 30) -> list[float]:
     peak = max(float(np.percentile(rms, 95)), 1e-4)
     env = np.clip(rms / peak, 0, 1) ** 0.7
     return [round(float(v), 2) for v in env]
+
+
+def mic_used_elsewhere() -> bool:
+    """Is another app recording from a microphone right now (a Discord call, OBS, a game's voice chat)?
+    Then the people around you can be heard, and what she picks up isn't necessarily meant for her."""
+    import json
+    import subprocess
+
+    try:
+        out = subprocess.run(["pactl", "-f", "json", "list", "source-outputs"], capture_output=True, text=True,
+                             timeout=2).stdout
+        sources = subprocess.run(["pactl", "-f", "json", "list", "sources", "short"], capture_output=True, text=True,
+                                 timeout=2).stdout
+        monitors = {s["index"] for s in json.loads(sources or "[]") if s.get("name", "").endswith(".monitor")}
+        for o in json.loads(out or "[]"):
+            name = o.get("properties", {}).get("application.name") or ""
+            # her own stream is "PipeWire ALSA [python3.x]"; monitors are desktop audio (cava, the clip recorder)
+            if o.get("source") in monitors or o.get("corked") or "[python" in name:
+                continue
+            return True
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return False
